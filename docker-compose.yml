@@ -1,0 +1,166 @@
+# AI量化系统 Docker Compose配置
+version: "3.8"
+
+services:
+  # FastAPI应用服务
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-quant-app
+    ports:
+      - "8000:8000"
+    environment:
+      # 数据库配置
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USERNAME=ai_quant_user
+      - DB_PASSWORD=ai_quant_password
+      - DB_NAME=ai_quant_db
+
+      # Redis配置
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+      # 应用配置
+      - DEBUG=true
+      - LOG_LEVEL=INFO
+      - PYTHONPATH=/app
+
+      # 数据存储路径
+      - DATA_STORAGE_PATH=/app/data
+      - PARQUET_STORAGE_PATH=/app/data/parquet
+      - LOG_STORAGE_PATH=/app/logs
+    volumes:
+      # 代码热更新
+      - .:/app
+      # 数据持久化
+      - app_data:/app/data
+      - app_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - ai-quant-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL数据库服务
+  postgres:
+    image: postgres:16-alpine
+    container_name: ai-quant-postgres
+    environment:
+      - POSTGRES_DB=ai_quant_db
+      - POSTGRES_USER=ai_quant_user
+      - POSTGRES_PASSWORD=ai_quant_password
+      - POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C
+    volumes:
+      # 数据持久化
+      - postgres_data:/var/lib/postgresql/data
+      # 初始化脚本
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # PostgreSQL配置
+      - ./docker/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - ai-quant-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_quant_user -d ai_quant_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    command: >
+      postgres
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+
+  # Redis缓存服务
+  redis:
+    image: redis:7-alpine
+    container_name: ai-quant-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      # 数据持久化
+      - redis_data:/data
+      # Redis配置
+      - ./docker/redis/redis.conf:/etc/redis/redis.conf:ro
+    networks:
+      - ai-quant-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    command: redis-server /etc/redis/redis.conf
+
+  # Adminer - 数据库管理工具（开发环境）
+  adminer:
+    image: adminer:latest
+    container_name: ai-quant-adminer
+    ports:
+      - "8080:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+      - ADMINER_DESIGN=nette
+    depends_on:
+      - postgres
+    networks:
+      - ai-quant-network
+    restart: unless-stopped
+    profiles:
+      - dev
+
+  # Redis Commander - Redis管理工具（开发环境）
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: ai-quant-redis-commander
+    ports:
+      - "8081:8081"
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    depends_on:
+      - redis
+    networks:
+      - ai-quant-network
+    restart: unless-stopped
+    profiles:
+      - dev
+
+# 数据卷
+volumes:
+  postgres_data:
+    driver: local
+    name: ai-quant-postgres-data
+  redis_data:
+    driver: local
+    name: ai-quant-redis-data
+  app_data:
+    driver: local
+    name: ai-quant-app-data
+  app_logs:
+    driver: local
+    name: ai-quant-app-logs
+
+# 网络
+networks:
+  ai-quant-network:
+    driver: bridge
+    name: ai-quant-network

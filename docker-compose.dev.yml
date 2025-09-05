@@ -1,0 +1,116 @@
+# AI量化系统 开发环境Docker Compose覆盖配置
+version: "3.8"
+
+services:
+  # FastAPI应用开发环境配置
+  app:
+    build:
+      target: base
+    environment:
+      # 开发环境特定配置
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+      - RELOAD=true
+      # 禁用生产环境特性
+      - WORKERS=1
+    volumes:
+      # 开发时代码热更新
+      - .:/app:cached
+      - /app/__pycache__
+      - /app/.pytest_cache
+    command: >
+      sh -c "uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/backend --log-level debug"
+    stdin_open: true
+    tty: true
+
+  # PostgreSQL开发环境配置
+  postgres:
+    environment:
+      # 开发环境数据库配置
+      - POSTGRES_LOG_STATEMENT=all
+      - POSTGRES_LOG_MIN_DURATION_STATEMENT=0
+    volumes:
+      # 开发时数据库脚本
+      - ./docker/postgres/dev-init.sql:/docker-entrypoint-initdb.d/dev-init.sql:ro
+    ports:
+      # 暴露端口供本地工具连接
+      - "5432:5432"
+
+  # Redis开发环境配置
+  redis:
+    volumes:
+      # 开发环境Redis配置
+      - ./docker/redis/redis-dev.conf:/etc/redis/redis.conf:ro
+    ports:
+      - "6379:6379"
+    command: redis-server /etc/redis/redis.conf --loglevel debug
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 -p 6379 ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+  # 开发工具服务
+  jupyter:
+    image: jupyter/datascience-notebook:latest
+    container_name: ai-quant-jupyter
+    ports:
+      - "8888:8888"
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+      - JUPYTER_TOKEN=ai-quant-dev
+    volumes:
+      - .:/home/jovyan/work
+      - jupyter_data:/home/jovyan/.jupyter
+    networks:
+      - ai-quant-network
+    restart: unless-stopped
+    profiles:
+      - dev
+
+  # 监控服务 - Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ai-quant-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - ai-quant-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  # 监控服务 - Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ai-quant-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./docker/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+    networks:
+      - ai-quant-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+volumes:
+  jupyter_data:
+    driver: local
+    name: ai-quant-jupyter-data
+  prometheus_data:
+    driver: local
+    name: ai-quant-prometheus-data
+  grafana_data:
+    driver: local
+    name: ai-quant-grafana-data

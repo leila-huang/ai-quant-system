@@ -1,0 +1,55 @@
+# AI量化系统 P0级核心依赖
+# 版本号固定，确保环境一致性
+
+# Web框架
+fastapi[standard]==0.115.13
+uvicorn[standard]==0.32.1
+pydantic==2.10.4
+pydantic-settings==2.7.0
+
+# 数据获取和处理
+akshare==1.16.72
+pandas==2.2.3
+numpy==2.2.1
+
+# 数据存储
+# PostgreSQL
+psycopg2-binary==2.9.10
+SQLAlchemy==2.0.36
+alembic==1.14.0
+
+# Parquet存储
+pyarrow==19.0.0
+fastparquet==2024.11.0
+
+# Redis缓存
+redis==5.2.1
+hiredis==3.1.0
+
+# 开发工具和测试
+pytest==8.3.4
+pytest-asyncio==0.25.0
+pytest-cov==6.0.0
+black==24.10.0
+isort==5.13.2
+flake8==7.1.1
+
+# 环境配置
+python-dotenv==1.0.1
+python-multipart==0.0.19
+
+# 日志和监控
+loguru==0.7.3
+
+# 数据验证和序列化
+marshmallow==3.23.2
+marshmallow-sqlalchemy==0.30.0
+
+# HTTP客户端
+httpx==0.28.1
+requests==2.32.3
+
+# 时间处理
+pendulum==3.0.0
+pytz==2024.2
+psutil==6.0.0

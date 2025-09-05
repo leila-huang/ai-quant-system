@@ -1,0 +1,115 @@
+# AI量化系统 Docker构建忽略文件
+
+# Git相关
+.git
+.gitignore
+.gitattributes
+
+# Python相关
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# 虚拟环境
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# IDE和编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# 测试相关
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# 日志文件
+*.log
+logs/
+
+# 数据文件
+data/
+*.sqlite
+*.db
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+
+# 文档
+docs/_build/
+*.pdf
+
+# 配置文件（敏感信息）
+.env
+.env.local
+.env.*.local
+config.local.yml
+
+# Docker相关
+Dockerfile.dev
+docker-compose.override.yml
+.dockerignore
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 备份文件
+*.bak
+*.backup
+*.old
+
+# Jupyter相关
+.ipynb_checkpoints/
+*.ipynb
+
+# 缓存目录
+.cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# 包管理器
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 其他开发工具
+.coverage.*
+.pytest_cache
+.ruff_cache

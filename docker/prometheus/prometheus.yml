@@ -1,0 +1,32 @@
+# AI量化系统 Prometheus配置
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "rules/*.yml"
+
+scrape_configs:
+  # Prometheus自身
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # AI量化系统应用
+  - job_name: "ai-quant-app"
+    static_configs:
+      - targets: ["app:8000"]
+    metrics_path: "/metrics"
+    scrape_interval: 30s
+
+  # PostgreSQL监控
+  - job_name: "postgres"
+    static_configs:
+      - targets: ["postgres:5432"]
+    scrape_interval: 30s
+
+  # Redis监控
+  - job_name: "redis"
+    static_configs:
+      - targets: ["redis:6379"]
+    scrape_interval: 30s
