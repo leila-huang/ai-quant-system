@@ -1,6 +1,6 @@
 # AI 量化系统 (AI-Quant-System)
 
-> 基于 AKShare 的现代化 A 股量化交易平台 - P0 级基础设施
+> 基于 AKShare 的现代化 A 股量化交易平台 - P1 级核心业务逻辑
 
 ## 项目概述
 
@@ -13,7 +13,13 @@ AI 量化系统是一个完整的 A 股量化交易平台，采用现代化技�
 - ⚡ **现代化 API**: FastAPI 异步框架，响应时间<200ms
 - 🐘 **可靠数据库**: PostgreSQL 存储业务数据，支持 ACID 事务
 - 🐳 **容器化部署**: Docker 一键启动开发环境
-- 📈 **量化回测**: 集成 vectorbt 高性能回测引擎(P1 阶段)
+- 📈 **量化回测**: vectorbt 高性能向量化回测引擎，支持多策略并行
+- 🤖 **机器学习**: 集成 XGBoost 预测模型，支持多种预测目标
+- 📊 **技术指标**: 完整的技术指标计算库(MA、RSI、MACD、布林带等)
+- ⚡ **特征工程**: 自动化特征生成和选择流水线
+- 📋 **A 股约束**: T+1、涨跌停、停牌等 A 股市场约束建模
+- 💰 **成本建模**: 精确的交易成本和滑点建模
+- 📑 **专业报告**: 完整的回测报告生成，包含风险收益分析
 - 🎯 **智能风控**: 多维度风险管理系统(P3 阶段)
 
 ## 技术栈
@@ -26,6 +32,12 @@ AI 量化系统是一个完整的 A 股量化交易平台，采用现代化技�
 - **数据存储**: PostgreSQL + Redis + Parquet
 - **ORM**: SQLAlchemy 2.0
 - **异步编程**: asyncio/aioredis
+- **回测引擎**: vectorbt (高性能向量化回测)
+- **机器学习**: XGBoost + scikit-learn
+- **技术指标**: TA-Lib + 自定义指标库
+- **数值计算**: NumPy + Numba (JIT 加速)
+- **数据可视化**: Matplotlib + Seaborn + Plotly
+- **并行计算**: joblib + 多进程
 
 ### 前端技术 (P2 阶段)
 
@@ -41,6 +53,10 @@ AI 量化系统是一个完整的 A 股量化交易平台，采用现代化技�
 - **测试框架**: pytest + pytest-asyncio
 - **容器化**: Docker + Docker Compose
 - **数据库迁移**: Alembic
+- **数据分析**: Jupyter Lab + IPython
+- **交互式图表**: Plotly + Dash
+- **快速原型**: Streamlit
+- **性能分析**: memory_profiler + line_profiler
 
 ## 项目结构
 
@@ -55,7 +71,12 @@ ai-quant-system/
 │       ├── data/             # 数据适配器
 │       ├── storage/          # 存储引擎
 │       ├── database/         # 数据库模型
-│       └── models/           # 数据模型
+│       ├── models/           # 数据模型
+│       └── engine/           # P1级核心引擎
+│           ├── features/     # 特征工程模块
+│           ├── modeling/     # 机器学习建模
+│           ├── backtest/     # 回测引擎
+│           └── utils/        # 工具函数
 ├── data/                      # 数据存储
 │   └── parquet/              # Parquet文件存储
 ├── tests/                     # 测试文件
@@ -251,10 +272,21 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ## 版本计划
 
 - ✅ **P0 (Week 1-4)**: 数据基础设施
-- 🔄 **P1 (Week 5-8)**: 回测引擎 + 特征工程
+- ✅ **P1 (Week 5-8)**: 特征工程 + XGBoost 建模 + vectorbt 回测引擎 + A 股约束建模
 - ⏳ **P2 (Week 9-12)**: React 前端 + 可视化
 - ⏳ **P3 (Week 13-16)**: 纸上交易 + 风控
 - ⏳ **P4 (Week 17-20)**: AI 增强功能
+
+### P1 级功能详情 (已完成 ✅)
+
+- ✅ **依赖环境**: vectorbt + XGBoost + scikit-learn + TA-Lib + numba
+- ✅ **技术指标**: MA、EMA、RSI、MACD、布林带、KDJ、Williams %R、成交量均线
+- ✅ **特征工程**: 自动化特征生成、缩放、选择和存储流水线
+- ✅ **机器学习**: XGBoost 预测模型，支持回归和分类任务
+- ✅ **回测引擎**: 高性能向量化回测，支持多策略并行执行
+- ✅ **市场约束**: T+1、涨跌停、停牌等 A 股特有规则完整建模
+- ✅ **成本建模**: 精确的手续费、印花税、过户费、滑点计算
+- ✅ **专业报告**: HTML/JSON 多格式风险收益分析报告生成
 
 ## 贡献指南
 
