@@ -12,6 +12,9 @@ import {
   Alert,
   Spin,
   Tabs,
+  Modal,
+  List,
+  Empty,
 } from 'antd';
 import {
   SendOutlined,
@@ -60,6 +63,17 @@ const AI: React.FC = () => {
   const [loadingPresets, setLoadingPresets] = useState(false);
   const [sessionId] = useState(() => aiApi.generateSessionId());
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [historyModalVisible, setHistoryModalVisible] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyMeta, setHistoryMeta] = useState<
+    | {
+        totalCount: number;
+        message?: string;
+      }
+    | null
+  >(null);
 
   // 加载预设问题数据
   const loadPresetQuestions = async () => {
@@ -251,6 +265,47 @@ const AI: React.FC = () => {
     handleSendMessage(`请帮我${suggestion}`);
   };
 
+  const loadChatHistory = async () => {
+    setHistoryError(null);
+    setHistoryLoading(true);
+    try {
+      const history = await aiApi.getChatHistory(sessionId, 100);
+      if (history) {
+        setChatHistory(history.messages || []);
+        setHistoryMeta({
+          totalCount: history.total_count,
+          message: history.message,
+        });
+      } else {
+        setChatHistory([]);
+        setHistoryMeta(null);
+      }
+    } catch (error) {
+      console.error('加载对话历史失败:', error);
+      setChatHistory([]);
+      setHistoryMeta(null);
+      setHistoryError('无法加载对话历史，请稍后重试。');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleOpenHistory = () => {
+    setHistoryModalVisible(true);
+    loadChatHistory();
+  };
+
+  const handleCloseHistory = () => {
+    setHistoryModalVisible(false);
+  };
+
+  const handleApplyHistory = () => {
+    if (chatHistory.length > 0) {
+      setMessages(chatHistory);
+      setHistoryModalVisible(false);
+    }
+  };
+
   // 清空对话
   const handleClearChat = () => {
     setMessages([
@@ -276,7 +331,13 @@ const AI: React.FC = () => {
         subtitle="智能量化分析助手，提供专业的投资建议和策略优化方案"
         extra={
           <Space>
-            <Button icon={<HistoryOutlined />}>对话历史</Button>
+            <Button
+              icon={<HistoryOutlined />}
+              onClick={handleOpenHistory}
+              loading={historyLoading && historyModalVisible}
+            >
+              对话历史
+            </Button>
             <Button icon={<ClearOutlined />} onClick={handleClearChat}>
               清空对话
             </Button>
@@ -443,40 +504,42 @@ const AI: React.FC = () => {
         {/* 预设问题和帮助 */}
         <Col xs={24} lg={8}>
           <Card title="常见问题" style={{ marginBottom: '16px' }}>
-            <Tabs
-              size="small"
-              items={presetQuestions.map((category, index) => ({
-                key: index.toString(),
-                label: (
-                  <Space>
-                    {category.icon}
-                    <span>{category.category}</span>
-                  </Space>
-                ),
-                children: (
-                  <Space direction="vertical" style={{ width: '100%' }}>
-                    {category.questions.map((question, qIndex) => (
-                      <Card
-                        key={qIndex}
-                        size="small"
-                        hoverable
-                        onClick={() => handlePresetQuestion(question.prompt)}
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <Space direction="vertical" size={4}>
-                          <Text strong style={{ fontSize: '14px' }}>
-                            {question.title}
-                          </Text>
-                          <Text type="secondary" style={{ fontSize: '12px' }}>
-                            {question.description}
-                          </Text>
-                        </Space>
-                      </Card>
-                    ))}
-                  </Space>
-                ),
-              }))}
-            />
+            <Spin spinning={loadingPresets}>
+              <Tabs
+                size="small"
+                items={presetQuestions.map((category, index) => ({
+                  key: index.toString(),
+                  label: (
+                    <Space>
+                      {category.icon}
+                      <span>{category.category}</span>
+                    </Space>
+                  ),
+                  children: (
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      {category.questions.map((question, qIndex) => (
+                        <Card
+                          key={qIndex}
+                          size="small"
+                          hoverable
+                          onClick={() => handlePresetQuestion(question.prompt)}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <Space direction="vertical" size={4}>
+                            <Text strong style={{ fontSize: '14px' }}>
+                              {question.title}
+                            </Text>
+                            <Text type="secondary" style={{ fontSize: '12px' }}>
+                              {question.description}
+                            </Text>
+                          </Space>
+                        </Card>
+                      ))}
+                    </Space>
+                  ),
+                }))}
+              />
+            </Spin>
           </Card>
 
           <Alert
@@ -495,6 +558,92 @@ const AI: React.FC = () => {
           />
         </Col>
       </Row>
+
+      <Modal
+        title="对话历史"
+        open={historyModalVisible}
+        onCancel={handleCloseHistory}
+        width={640}
+        footer={[
+          <Button key="close" onClick={handleCloseHistory}>
+            关闭
+          </Button>,
+          <Button
+            key="apply"
+            type="primary"
+            onClick={handleApplyHistory}
+            disabled={chatHistory.length === 0}
+          >
+            导入到当前会话
+          </Button>,
+        ]}
+      >
+        {historyLoading ? (
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <Spin tip="正在加载对话历史..." />
+          </div>
+        ) : (
+          <Space direction="vertical" style={{ width: '100%' }} size={16}>
+            {historyError && (
+              <Alert type="error" message={historyError} showIcon />
+            )}
+
+            {historyMeta?.message && !historyError && (
+              <Alert type="info" message={historyMeta.message} showIcon />
+            )}
+
+            {chatHistory.length > 0 ? (
+              <List
+                size="small"
+                dataSource={chatHistory}
+                renderItem={item => (
+                  <List.Item key={item.id} style={{ alignItems: 'flex-start' }}>
+                    <List.Item.Meta
+                      avatar={
+                        <Avatar
+                          icon={
+                            item.type === 'user' ? <UserOutlined /> : <RobotOutlined />
+                          }
+                          style={{
+                            backgroundColor:
+                              item.type === 'user' ? '#87d068' : '#1890ff',
+                          }}
+                        />
+                      }
+                      title={
+                        <Space split={<span>·</span>}>
+                          <Text strong>
+                            {item.type === 'user' ? '用户' : 'AI助手'}
+                          </Text>
+                          <Text type="secondary">
+                            {new Date(item.timestamp).toLocaleString('zh-CN')}
+                          </Text>
+                        </Space>
+                      }
+                      description={
+                        <Paragraph style={{ marginBottom: 8, whiteSpace: 'pre-wrap' }}>
+                          {item.content}
+                        </Paragraph>
+                      }
+                    />
+                    {item.suggestions && item.suggestions.length > 0 && (
+                      <Space wrap>
+                        {item.suggestions.map((suggestion, index) => (
+                          <Tag color="blue" key={index}>
+                            {suggestion}
+                          </Tag>
+                        ))}
+                      </Space>
+                    )}
+                  </List.Item>
+                )}
+              />
+            ) : (
+              <Empty description="暂无历史对话" />
+            )}
+          </Space>
+        )}
+      </Modal>
     </div>
   );
 };
