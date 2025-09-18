@@ -37,7 +37,7 @@ import {
   websocketUtils,
   type StrategyStatusUpdateMessage,
 } from '@/services';
-import { useResponsive } from '@/hooks/useResponsive';
+import { useResponsive, useMobileOptimization } from '@/hooks/useResponsive';
 
 const { Text } = Typography;
 const { Option } = Select;
@@ -49,8 +49,8 @@ const { Option } = Select;
  * 提供策略的创建、编辑、运行、监控等完整功能
  */
 const Strategy: React.FC = () => {
-  const { isMobile, tableSize, tablePagination, chartHeight, mobileConfig } =
-    useResponsive();
+  const { isMobile, tableSize, tablePagination } = useResponsive();
+  const { mobileConfig } = useMobileOptimization();
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -190,7 +190,8 @@ const Strategy: React.FC = () => {
           testing: { label: '测试中', color: 'processing' },
         };
 
-        const config = statusMap[status];
+        const config =
+          statusMap[status] || ({ label: status, color: 'default' } as const);
         return <Tag color={config.color}>{config.label}</Tag>;
       },
     },
@@ -471,7 +472,7 @@ const Strategy: React.FC = () => {
 
   return (
     <div
-      style={{ padding: mobileConfig.padding }}
+      style={{ padding: mobileConfig?.padding ?? (isMobile ? '12px' : '24px') }}
       className={
         isMobile ? 'mobile-optimized mobile-performance' : 'desktop-optimized'
       }

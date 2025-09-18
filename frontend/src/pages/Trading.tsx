@@ -16,6 +16,7 @@ import {
   Typography,
   Progress,
   List,
+  message,
 } from 'antd';
 import {
   ShoppingCartOutlined,
@@ -145,6 +146,15 @@ const Trading: React.FC = () => {
   const [tradeModalVisible, setTradeModalVisible] = useState(false);
   const [tradeType, setTradeType] = useState<'buy' | 'sell'>('buy');
   const [form] = Form.useForm();
+  const [settingsForm] = Form.useForm();
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [selectedPosition, setSelectedPosition] = useState<Position | null>(
+    null
+  );
+  const [tradingConfig, setTradingConfig] = useState({
+    feeRate: 0.0005,
+    minLot: 100,
+  });
 
   // 模拟股价更新
   useEffect(() => {
@@ -378,7 +388,8 @@ const Trading: React.FC = () => {
           cancelled: { label: '已撤销', color: 'default' },
         };
 
-        const config = statusMap[status];
+        const config =
+          statusMap[status] || ({ label: status, color: 'default' } as const);
         return <Tag color={config.color}>{config.label}</Tag>;
       },
     },
@@ -387,16 +398,20 @@ const Trading: React.FC = () => {
   // 处理买入
   const handleBuy = () => {
     setTradeType('buy');
+    setSelectedPosition(null);
+    form.resetFields();
+    form.setFieldsValue({ shares: tradingConfig.minLot });
     setTradeModalVisible(true);
   };
 
   // 处理卖出
   const handleSell = (position: Position) => {
     setTradeType('sell');
+    setSelectedPosition(position);
     form.setFieldsValue({
       symbol: position.symbol,
       shares: position.shares,
-      price: position.currentPrice,
+      price: Number(position.currentPrice.toFixed(2)),
     });
     setTradeModalVisible(true);
   };
@@ -467,86 +482,190 @@ const Trading: React.FC = () => {
     });
   };
 
+  const handleOpenSettings = () => {
+    settingsForm.setFieldsValue({
+      availableCash: accountInfo.availableCash,
+      feeRate: tradingConfig.feeRate,
+      minLot: tradingConfig.minLot,
+    });
+    setSettingsVisible(true);
+  };
+
+  const handleSettingsSubmit = (values: {
+    availableCash: number;
+    feeRate: number;
+    minLot: number;
+  }) => {
+    setTradingConfig(prev => ({
+      ...prev,
+      feeRate: values.feeRate,
+      minLot: values.minLot,
+    }));
+
+    setAccountInfo(prev => ({
+      ...prev,
+      availableCash: values.availableCash,
+      totalAssets: values.availableCash + prev.marketValue,
+    }));
+
+    message.success('交易设置已更新');
+    setSettingsVisible(false);
+  };
+
   // 处理交易提交
   const handleTradeSubmit = (values: {
     symbol: string;
     shares: number;
     price: number;
   }) => {
-    const newTrade: TradeRecord = {
-      id: Date.now().toString(),
-      symbol: values.symbol,
-      name: values.symbol, // 简化处理
-      side: tradeType,
-      shares: values.shares,
-      price: values.price,
-      amount: values.shares * values.price,
-      fee: values.shares * values.price * 0.0005, // 0.05% 手续费
-      timestamp: new Date().toLocaleString('zh-CN'),
-      status: 'filled',
-    };
+    const symbol = values.symbol;
+    const shares = Number(values.shares);
+    const price = Number(values.price);
 
-    setTradeRecords(prev => [newTrade, ...prev]);
+    if (!symbol || !shares || !price) {
+      message.error('请输入完整的交易信息');
+      return;
+    }
+
+    const amount = shares * price;
+    const fee = amount * tradingConfig.feeRate;
 
     if (tradeType === 'buy') {
-      // 买入逻辑
-      const existingPosition = positions.find(p => p.symbol === values.symbol);
+      if (shares % tradingConfig.minLot !== 0) {
+        message.error(`交易数量需为 ${tradingConfig.minLot} 股的整数倍`);
+        return;
+      }
+
+      const totalCost = amount + fee;
+      if (totalCost > accountInfo.availableCash) {
+        message.error('可用资金不足，无法完成买入');
+        return;
+      }
+
+      setAccountInfo(prev => ({
+        ...prev,
+        availableCash: prev.availableCash - totalCost,
+      }));
+
+      const existingPosition = positions.find(p => p.symbol === symbol);
       if (existingPosition) {
-        const totalShares = existingPosition.shares + values.shares;
-        const totalCost = existingPosition.cost + newTrade.amount;
-        const newAvgPrice = totalCost / totalShares;
+        const totalShares = existingPosition.shares + shares;
+        const newCost = existingPosition.cost + totalCost;
+        const currentPrice = price;
+        const marketValue = totalShares * currentPrice;
+        const pnl = marketValue - newCost;
 
         setPositions(prev =>
           prev.map(p =>
-            p.symbol === values.symbol
+            p.symbol === symbol
               ? {
                   ...p,
                   shares: totalShares,
-                  avgPrice: newAvgPrice,
-                  cost: totalCost,
-                  marketValue: totalShares * p.currentPrice,
-                  pnl: totalShares * p.currentPrice - totalCost,
-                  pnlRatio:
-                    (totalShares * p.currentPrice - totalCost) / totalCost,
+                  avgPrice: newCost / totalShares,
+                  cost: newCost,
+                  currentPrice,
+                  marketValue,
+                  pnl,
+                  pnlRatio: newCost > 0 ? pnl / newCost : 0,
                 }
               : p
           )
         );
       } else {
+        const totalCost = amount + fee;
         const newPosition: Position = {
           id: Date.now().toString(),
-          symbol: values.symbol,
-          name: values.symbol,
-          shares: values.shares,
-          avgPrice: values.price,
-          currentPrice: values.price,
-          marketValue: newTrade.amount,
-          cost: newTrade.amount,
-          pnl: 0,
-          pnlRatio: 0,
+          symbol,
+          name: symbol,
+          shares,
+          avgPrice: totalCost / shares,
+          currentPrice: price,
+          marketValue: amount,
+          cost: totalCost,
+          pnl: amount - totalCost,
+          pnlRatio: totalCost > 0 ? (amount - totalCost) / totalCost : 0,
           side: 'long',
         };
         setPositions(prev => [...prev, newPosition]);
       }
     } else {
-      // 卖出逻辑
+      const existingPosition = positions.find(p => p.symbol === symbol);
+      if (!existingPosition) {
+        message.error('当前未持有该股票，无法卖出');
+        return;
+      }
+
+      if (shares > existingPosition.shares) {
+        message.error('卖出数量不能超过持仓数量');
+        return;
+      }
+
+      if (
+        shares % tradingConfig.minLot !== 0 &&
+        shares !== existingPosition.shares
+      ) {
+        message.error(`卖出数量需为 ${tradingConfig.minLot} 股的整数倍`);
+        return;
+      }
+
+      const costPerShare = existingPosition.cost / existingPosition.shares;
+      const realizedCost = costPerShare * shares;
+      const realizedPnl = amount - fee - realizedCost;
+
+      setAccountInfo(prev => ({
+        ...prev,
+        availableCash: prev.availableCash + (amount - fee),
+        todayPnl: prev.todayPnl + realizedPnl,
+      }));
+
       setPositions(prev =>
         prev
-          .map(p =>
-            p.symbol === values.symbol
-              ? {
-                  ...p,
-                  shares: p.shares - values.shares,
-                  marketValue: (p.shares - values.shares) * p.currentPrice,
-                  // 保持成本价和成本不变，只减少持仓
-                }
-              : p
-          )
-          .filter(p => p.shares > 0)
+          .map(position => {
+            if (position.symbol !== symbol) {
+              return position;
+            }
+
+            const remainingShares = position.shares - shares;
+            if (remainingShares <= 0) {
+              return null;
+            }
+
+            const remainingCost = costPerShare * remainingShares;
+            const currentPrice = price;
+            const marketValue = remainingShares * currentPrice;
+            const pnl = marketValue - remainingCost;
+
+            return {
+              ...position,
+              shares: remainingShares,
+              cost: remainingCost,
+              currentPrice,
+              marketValue,
+              pnl,
+              pnlRatio: remainingCost > 0 ? pnl / remainingCost : 0,
+            };
+          })
+          .filter((position): position is Position => Boolean(position))
       );
     }
 
+    const newTrade: TradeRecord = {
+      id: Date.now().toString(),
+      symbol,
+      name: symbol,
+      side: tradeType,
+      shares,
+      price,
+      amount,
+      fee,
+      timestamp: new Date().toLocaleString('zh-CN'),
+      status: 'filled',
+    };
+
+    setTradeRecords(prev => [newTrade, ...prev]);
+    message.success('交易已提交');
     setTradeModalVisible(false);
+    setSelectedPosition(null);
     form.resetFields();
   };
 
@@ -564,7 +683,9 @@ const Trading: React.FC = () => {
             >
               买入
             </Button>
-            <Button icon={<SettingOutlined />}>交易设置</Button>
+            <Button icon={<SettingOutlined />} onClick={handleOpenSettings}>
+              交易设置
+            </Button>
           </Space>
         }
       />
@@ -751,6 +872,7 @@ const Trading: React.FC = () => {
         onCancel={() => {
           setTradeModalVisible(false);
           form.resetFields();
+          setSelectedPosition(null);
         }}
         onOk={() => form.submit()}
         width={500}
@@ -770,17 +892,50 @@ const Trading: React.FC = () => {
           <Form.Item
             label="交易数量"
             name="shares"
-            rules={[{ required: true, message: '请输入交易数量' }]}
+            rules={[
+              { required: true, message: '请输入交易数量' },
+              () => ({
+                validator(_, value) {
+                  if (!value || value <= 0) {
+                    return Promise.reject(new Error('交易数量必须大于0'));
+                  }
+                  const isClosingPosition =
+                    tradeType === 'sell' &&
+                    selectedPosition &&
+                    value === selectedPosition.shares;
+
+                  if (
+                    value % tradingConfig.minLot !== 0 &&
+                    !isClosingPosition
+                  ) {
+                    return Promise.reject(
+                      new Error(`交易数量需为 ${tradingConfig.minLot} 股的整数倍`)
+                    );
+                  }
+                  if (
+                    tradeType === 'sell' &&
+                    selectedPosition &&
+                    value > selectedPosition.shares
+                  ) {
+                    return Promise.reject(
+                      new Error('卖出数量不能超过当前持仓数量')
+                    );
+                  }
+                  return Promise.resolve();
+                },
+              }),
+            ]}
           >
             <InputNumber
               placeholder="输入股数"
-              min={100}
-              step={100}
-              style={{ width: '100%' }}
-              formatter={value => `${value}股`}
-              parser={value =>
-                (value ? Number(value.replace('股', '')) : 100) as 100
+              min={tradingConfig.minLot}
+              step={tradingConfig.minLot}
+              max={
+                tradeType === 'sell' && selectedPosition
+                  ? selectedPosition.shares
+                  : undefined
               }
+              style={{ width: '100%' }}
             />
           </Form.Item>
 
@@ -795,10 +950,6 @@ const Trading: React.FC = () => {
               step={0.01}
               precision={2}
               style={{ width: '100%' }}
-              formatter={value => `¥ ${value}`}
-              parser={value =>
-                (value ? Number(value.replace('¥ ', '')) : 0.01) as 0.01
-              }
             />
           </Form.Item>
 
@@ -808,6 +959,59 @@ const Trading: React.FC = () => {
             type="warning"
             showIcon
             style={{ marginTop: '16px' }}
+          />
+        </Form>
+      </Modal>
+
+      <Modal
+        title="交易设置"
+        open={settingsVisible}
+        onCancel={() => setSettingsVisible(false)}
+        onOk={() => settingsForm.submit()}
+        width={480}
+      >
+        <Form form={settingsForm} layout="vertical" onFinish={handleSettingsSubmit}>
+          <Form.Item
+            label="可用资金"
+            name="availableCash"
+            rules={[{ required: true, message: '请输入可用资金' }]}
+          >
+            <InputNumber
+              min={0}
+              step={1000}
+              style={{ width: '100%' }}
+              prefix="¥"
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="单笔交易最小股数"
+            name="minLot"
+            rules={[{ required: true, message: '请输入最小交易股数' }]}
+            extra="交易数量需为该数值的整数倍"
+          >
+            <InputNumber min={100} step={100} style={{ width: '100%' }} />
+          </Form.Item>
+
+          <Form.Item
+            label="交易手续费率"
+            name="feeRate"
+            rules={[{ required: true, message: '请输入手续费率' }]}
+            extra="填写小数形式，例如0.0005表示0.05%"
+          >
+            <InputNumber
+              min={0}
+              max={0.01}
+              step={0.0001}
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+
+          <Alert
+            message="提示"
+            description="交易设置将影响买卖校验、手续费和可用资金计算。"
+            type="info"
+            showIcon
           />
         </Form>
       </Modal>
