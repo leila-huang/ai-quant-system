@@ -1,0 +1,281 @@
+/**
+ * 移动端响应式优化样式
+ * 
+ * 提供移动设备友好的UI样式和交互优化
+ */
+
+/* 全局移动端优化 */
+@media (max-width: 768px) {
+  /* 基础布局优化 */
+  .ant-layout-content {
+    padding: 12px !important;
+  }
+
+  .ant-card {
+    margin-bottom: 12px !important;
+  }
+
+  .ant-card-body {
+    padding: 16px !important;
+  }
+
+  /* 表格优化 */
+  .ant-table-wrapper {
+    font-size: 12px;
+  }
+
+  .ant-table-thead > tr > th {
+    padding: 8px 4px !important;
+    font-size: 12px;
+  }
+
+  .ant-table-tbody > tr > td {
+    padding: 8px 4px !important;
+    font-size: 12px;
+  }
+
+  .ant-table-pagination {
+    margin: 16px 0 0 0 !important;
+  }
+
+  /* 表单优化 */
+  .ant-form-item {
+    margin-bottom: 16px;
+  }
+
+  .ant-form-item-label > label {
+    font-size: 14px;
+  }
+
+  .ant-input,
+  .ant-select-selector {
+    height: 44px !important; /* 增大触摸区域 */
+    font-size: 16px !important; /* 防止iOS缩放 */
+  }
+
+  .ant-btn {
+    height: 44px !important;
+    min-width: 44px !important;
+    font-size: 14px;
+  }
+
+  /* 统计卡片优化 */
+  .ant-statistic {
+    text-align: center;
+  }
+
+  .ant-statistic-title {
+    font-size: 12px !important;
+  }
+
+  .ant-statistic-content {
+    font-size: 18px !important;
+  }
+
+  /* 图表容器优化 */
+  .chart-container {
+    margin: 12px 0;
+  }
+
+  .chart-container canvas {
+    max-height: 250px !important;
+  }
+
+  /* 模态框优化 */
+  .ant-modal {
+    margin: 16px;
+    max-width: calc(100vw - 32px);
+  }
+
+  .ant-modal-content {
+    border-radius: 8px;
+  }
+
+  .ant-modal-body {
+    padding: 16px;
+  }
+
+  /* Drawer优化 */
+  .ant-drawer-body {
+    padding: 0;
+  }
+
+  /* Menu优化 */
+  .ant-menu-item {
+    height: 48px;
+    line-height: 48px;
+    margin-bottom: 4px;
+  }
+
+  .ant-menu-item-icon {
+    font-size: 18px;
+  }
+
+  /* 面包屑优化 */
+  .ant-breadcrumb {
+    font-size: 12px;
+    margin: 8px 0;
+  }
+
+  /* WebSocket状态指示器优化 */
+  .websocket-indicator {
+    font-size: 12px;
+  }
+
+  /* 性能监控组件优化 */
+  .performance-monitor {
+    bottom: 16px;
+    right: 16px;
+    left: 16px;
+    width: auto;
+  }
+}
+
+/* 平板优化 */
+@media (min-width: 768px) and (max-width: 1024px) {
+  .ant-layout-content {
+    padding: 16px;
+  }
+
+  .ant-table-wrapper {
+    font-size: 13px;
+  }
+
+  .chart-container canvas {
+    max-height: 300px !important;
+  }
+
+  .ant-form-item {
+    margin-bottom: 20px;
+  }
+}
+
+/* 触摸设备优化 */
+@media (hover: none) and (pointer: coarse) {
+  /* 增大可点击区域 */
+  .ant-btn,
+  .ant-menu-item,
+  .ant-pagination-item,
+  .ant-select-selector,
+  .ant-input {
+    min-height: 44px;
+  }
+
+  /* 移除hover效果 */
+  .ant-btn:hover,
+  .ant-menu-item:hover {
+    transform: none;
+    box-shadow: none;
+  }
+
+  /* 优化触摸反馈 */
+  .ant-btn:active,
+  .ant-menu-item:active {
+    transform: scale(0.98);
+    transition: transform 0.1s ease;
+  }
+}
+
+/* 高DPI显示优化 */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .chart-container {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* 横屏模式优化 */
+@media (orientation: landscape) and (max-height: 568px) {
+  .ant-layout-header {
+    height: 48px !important;
+    line-height: 48px !important;
+  }
+
+  .ant-menu-item {
+    height: 40px;
+    line-height: 40px;
+  }
+}
+
+/* 暗色主题适配 */
+@media (prefers-color-scheme: dark) {
+  .mobile-optimized {
+    background: #141414;
+    color: #ffffff;
+  }
+
+  .mobile-optimized .ant-card {
+    background: #1f1f1f;
+    border-color: #303030;
+  }
+}
+
+/* 减少动画以节省电量 */
+@media (prefers-reduced-motion: reduce) {
+  .ant-spin,
+  .ant-loading,
+  .chart-loading {
+    animation: none;
+  }
+
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* 无障碍优化 */
+.mobile-accessible {
+  /* 确保足够的对比度 */
+  --text-contrast: 4.5;
+
+  /* 确保可聚焦元素可见 */
+  *:focus {
+    outline: 2px solid #1890ff;
+    outline-offset: 2px;
+  }
+}
+
+/* 性能优化类 */
+.mobile-performance {
+  /* 使用硬件加速 */
+  transform: translateZ(0);
+  backface-visibility: hidden;
+
+  /* 优化重绘性能 */
+  will-change: transform, opacity;
+}
+
+/* 工具类 */
+.mobile-hidden {
+  display: none !important;
+}
+
+@media (min-width: 768px) {
+  .mobile-only {
+    display: none !important;
+  }
+}
+
+@media (max-width: 767px) {
+  .desktop-only {
+    display: none !important;
+  }
+}
+
+/* 滚动优化 */
+.mobile-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* 防止缩放 */
+.no-zoom {
+  touch-action: pan-x pan-y;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}

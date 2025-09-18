@@ -43,7 +43,9 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://localhost:8080", 
         "http://127.0.0.1:3000",
-        "http://127.0.0.1:8080"
+        "http://127.0.0.1:8080",
+        "http://frontend:80",
+        "http://ai-quant-frontend:80"
     ]
     
     # 数据库配置

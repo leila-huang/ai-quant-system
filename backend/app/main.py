@@ -21,6 +21,7 @@ from backend.app.middleware import (
     SecurityHeadersMiddleware
 )
 from backend.app.api import api_router
+from backend.app.api.websocket import router as websocket_router
 from backend.src.database.connection import init_database, close_database
 
 
@@ -87,6 +88,9 @@ setup_exception_handlers(app)
 
 # 包含API路由
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+# 包含WebSocket路由
+app.include_router(websocket_router)
 
 # 根路径
 @app.get("/", include_in_schema=False)
