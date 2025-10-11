@@ -128,7 +128,9 @@ newgrp docker
 
 # 验证安装
 docker --version
-docker-compose --version
+docker compose version  # Docker Compose V2
+# 或
+docker-compose --version  # Docker Compose V1 (如果已安装)
 ```
 
 ### 生产部署步骤

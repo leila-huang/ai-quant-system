@@ -10,7 +10,7 @@ pydantic-settings==2.7.0
 # 数据获取和处理
 akshare==1.16.72
 pandas==2.2.3
-numpy==2.2.1
+numpy==1.26.4
 
 # 数据存储
 # PostgreSQL
@@ -59,7 +59,8 @@ vectorbt>=0.25.0             # 高性能向量化回测引擎
 xgboost>=2.0.0               # 梯度提升机器学习框架
 scikit-learn>=1.3.0          # 机器学习工具包
 ta-lib>=0.4.0                # 技术指标计算库
-numba>=0.58.0                # JIT编译加速数值计算
+numba==0.58.1                # 与 numpy 1.26.*、Python 3.11 兼容
+llvmlite==0.41.1             # 与 numba 0.58.* 兼容
 matplotlib>=3.7.0            # 数据可视化（用于回测报告）
 seaborn>=0.12.0              # 统计数据可视化
 joblib>=1.3.0                # 并行计算和模型持久化

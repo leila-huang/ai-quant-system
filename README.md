@@ -119,6 +119,7 @@ ai-quant-system/
 ### 环境要求
 
 - **Docker Desktop** 4.0+
+- **Docker Compose** V1 或 V2 (支持 `docker-compose` 或 `docker compose` 命令)
 - **Python** 3.9+ (本地开发)
 - **Node.js** 18+ (前端开发)
 - **内存**: 8GB+ (推荐 16GB)

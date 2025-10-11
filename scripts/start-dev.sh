@@ -27,6 +27,18 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# 获取Docker Compose命令
+get_docker_compose_cmd() {
+    if command -v docker-compose &> /dev/null; then
+        echo "docker-compose"
+    elif docker compose version &> /dev/null; then
+        echo "docker compose"
+    else
+        log_error "Docker Compose未找到"
+        exit 1
+    fi
+}
+
 # 检查Docker是否安装
 check_docker() {
     if ! command -v docker &> /dev/null; then
@@ -34,7 +46,8 @@ check_docker() {
         exit 1
     fi
     
-    if ! command -v docker-compose &> /dev/null; then
+    # 检查Docker Compose (支持V1和V2)
+    if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
         log_error "Docker Compose未安装，请先安装Docker Compose"
         exit 1
     fi
@@ -53,7 +66,8 @@ cleanup() {
     log_info "清理旧容器和网络..."
     
     # 停止并删除容器
-    docker-compose -f docker-compose.yml -f docker-compose.dev.yml down --remove-orphans
+    DOCKER_COMPOSE_CMD=$(get_docker_compose_cmd)
+    $DOCKER_COMPOSE_CMD -f docker-compose.yml -f docker-compose.dev.yml down --remove-orphans
     
     # 删除悬空的镜像
     if [ "$(docker images -f dangling=true -q)" ]; then
@@ -68,7 +82,8 @@ build_images() {
     log_info "构建Docker镜像..."
     
     # 构建应用镜像
-    docker-compose -f docker-compose.yml -f docker-compose.dev.yml build --no-cache app
+    DOCKER_COMPOSE_CMD=$(get_docker_compose_cmd)
+    $DOCKER_COMPOSE_CMD -f docker-compose.yml -f docker-compose.dev.yml build --no-cache app
     
     log_success "镜像构建完成"
 }
@@ -77,34 +92,36 @@ build_images() {
 start_services() {
     log_info "启动开发环境服务..."
     
+    DOCKER_COMPOSE_CMD=$(get_docker_compose_cmd)
+    
     # 启动基础服务（数据库、缓存）
     log_info "启动基础服务（PostgreSQL、Redis）..."
-    docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
+    $DOCKER_COMPOSE_CMD -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
     
     # 等待数据库启动
     log_info "等待数据库服务启动..."
     sleep 10
     
     # 检查数据库连接
-    if ! docker-compose exec -T postgres pg_isready -U ai_quant_user -d ai_quant_db; then
+    if ! $DOCKER_COMPOSE_CMD exec -T postgres pg_isready -U ai_quant_user -d ai_quant_db; then
         log_warning "数据库未完全启动，再等待10秒..."
         sleep 10
     fi
     
     # 启动应用服务
     log_info "启动FastAPI应用服务..."
-    docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d app
+    $DOCKER_COMPOSE_CMD -f docker-compose.yml -f docker-compose.dev.yml up -d app
     
     # 启动开发工具（可选）
     if [ "$1" == "--with-tools" ]; then
         log_info "启动开发工具（Adminer、Redis Commander）..."
-        docker-compose -f docker-compose.yml -f docker-compose.dev.yml --profile dev up -d
+        $DOCKER_COMPOSE_CMD -f docker-compose.yml -f docker-compose.dev.yml --profile dev up -d
     fi
     
     # 启动监控工具（可选）
     if [ "$1" == "--with-monitoring" ]; then
         log_info "启动监控工具（Prometheus、Grafana）..."
-        docker-compose -f docker-compose.yml -f docker-compose.dev.yml --profile monitoring up -d
+        $DOCKER_COMPOSE_CMD -f docker-compose.yml -f docker-compose.dev.yml --profile monitoring up -d
     fi
     
     log_success "所有服务启动完成"
@@ -112,8 +129,9 @@ start_services() {
 
 # 显示服务状态
 show_status() {
+    DOCKER_COMPOSE_CMD=$(get_docker_compose_cmd)
     log_info "服务状态："
-    docker-compose -f docker-compose.yml -f docker-compose.dev.yml ps
+    $DOCKER_COMPOSE_CMD -f docker-compose.yml -f docker-compose.dev.yml ps
     
     echo ""
     log_info "服务访问地址："
@@ -137,27 +155,31 @@ show_status() {
 show_logs() {
     local service=${1:-app}
     log_info "显示 $service 服务日志..."
-    docker-compose -f docker-compose.yml -f docker-compose.dev.yml logs -f $service
+    DOCKER_COMPOSE_CMD=$(get_docker_compose_cmd)
+    $DOCKER_COMPOSE_CMD -f docker-compose.yml -f docker-compose.dev.yml logs -f $service
 }
 
 # 进入容器
 exec_container() {
     local service=${1:-app}
     log_info "进入 $service 容器..."
-    docker-compose -f docker-compose.yml -f docker-compose.dev.yml exec $service bash
+    DOCKER_COMPOSE_CMD=$(get_docker_compose_cmd)
+    $DOCKER_COMPOSE_CMD -f docker-compose.yml -f docker-compose.dev.yml exec $service bash
 }
 
 # 停止服务
 stop_services() {
     log_info "停止开发环境服务..."
-    docker-compose -f docker-compose.yml -f docker-compose.dev.yml down
+    DOCKER_COMPOSE_CMD=$(get_docker_compose_cmd)
+    $DOCKER_COMPOSE_CMD -f docker-compose.yml -f docker-compose.dev.yml down
     log_success "服务已停止"
 }
 
 # 重启服务
 restart_services() {
     log_info "重启开发环境服务..."
-    docker-compose -f docker-compose.yml -f docker-compose.dev.yml restart
+    DOCKER_COMPOSE_CMD=$(get_docker_compose_cmd)
+    $DOCKER_COMPOSE_CMD -f docker-compose.yml -f docker-compose.dev.yml restart
     log_success "服务已重启"
 }
 

@@ -26,6 +26,10 @@ services:
       - DEBUG=true
       - LOG_LEVEL=INFO
       - PYTHONPATH=/app
+      # 计算与可视化库运行时设置
+      - NUMBA_DISABLE_CACHING=1 # 禁用 numba 缓存以避免 site-packages 定位错误
+      - NUMBA_CACHE_DIR=/tmp/numba_cache # 指定 numba 缓存目录到可写路径
+      - MPLCONFIGDIR=/tmp/matplotlib # 解决 Matplotlib 写入权限
 
       # 数据存储路径
       - DATA_STORAGE_PATH=/app/data

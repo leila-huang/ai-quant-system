@@ -7,6 +7,7 @@
 在开始之前，请确保你的系统已安装：
 
 - **Docker Desktop** 4.0+ ([下载地址](https://www.docker.com/products/docker-desktop))
+- **Docker Compose** V1 或 V2 (支持 `docker-compose` 或 `docker compose` 命令)
 - **Git** 2.0+
 - **至少 8GB RAM** 和 10GB 硬盘空间
 

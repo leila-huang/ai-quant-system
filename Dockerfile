@@ -1,5 +1,5 @@
 # AI量化系统 FastAPI应用 Dockerfile
-FROM python:3.13-slim as base
+FROM python:3.11-slim as base
 
 # 设置工作目录
 WORKDIR /app
@@ -11,11 +11,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# 安装系统依赖
+# 安装系统依赖（编译工具、OpenMP运行库等）
 RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
+    build-essential \
     curl \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # 创建应用用户（安全最佳实践）
@@ -48,5 +48,5 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
 # 暴露端口
 EXPOSE 8000
 
-# 启动命令
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# 启动命令（容器内默认不启用热重载；开发模式由 docker-compose.dev.yml 覆盖）
+CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
