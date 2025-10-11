@@ -54,10 +54,16 @@ class TaskQueue:
     def __init__(self, max_concurrent_tasks: int = 3):
         self.tasks: Dict[str, AsyncTask] = {}
         self.running_tasks: Dict[str, asyncio.Task] = {}
-        self.max_concurrent_tasks = max_concurrent_tasks
+        # 将并发参数安全转为整数并保证最小为1
+        try:
+            self.max_concurrent_tasks = int(max_concurrent_tasks)
+        except Exception:
+            self.max_concurrent_tasks = 3
+        if self.max_concurrent_tasks < 1:
+            self.max_concurrent_tasks = 1
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
-        self._executor = ThreadPoolExecutor(max_workers=max_concurrent_tasks)
+        self._executor = ThreadPoolExecutor(max_workers=self.max_concurrent_tasks)
         
         # 启动任务调度器
         self._scheduler_task = None
@@ -120,9 +126,18 @@ class TaskQueue:
     def start_scheduler(self):
         """启动任务调度器"""
         if self._scheduler_task is None:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            self._scheduler_task = asyncio.create_task(self._scheduler_loop())
+            # 使用当前事件循环创建调度协程任务
+            try:
+                self._scheduler_task = asyncio.create_task(self._scheduler_loop())
+            except RuntimeError:
+                # 若当前线程无事件循环，则在后台线程启动一个新循环
+                import threading
+                def _run_loop():
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.create_task(self._scheduler_loop())
+                    loop.run_forever()
+                threading.Thread(target=_run_loop, daemon=True).start()
     
     def stop_scheduler(self):
         """停止任务调度器"""

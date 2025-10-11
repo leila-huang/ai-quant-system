@@ -354,3 +354,80 @@ export interface HealthResponse {
     memory_usage?: string;
   };
 }
+
+// ===================== 数据同步与健康类型 =====================
+export type SyncStatus =
+  | 'pending'
+  | 'running'
+  | 'success'
+  | 'failed'
+  | 'cancelled';
+
+export interface DataSyncRequest {
+  symbols?: string[];
+  start_date?: string; // YYYY-MM-DD
+  end_date?: string; // YYYY-MM-DD
+  data_source?: 'akshare' | 'eastmoney' | 'manual';
+  force_update?: boolean;
+  async_mode?: boolean;
+  priority?: number; // 1-10
+}
+
+export interface DataSyncResponse {
+  task_id: string;
+  status: SyncStatus;
+  message: string;
+  symbols_count: number;
+  estimated_time?: number;
+  created_at: string;
+}
+
+export interface SyncTaskStatus {
+  task_id: string;
+  status: SyncStatus;
+  progress: number; // 0-100
+  symbols_total: number;
+  symbols_completed: number;
+  symbols_failed: number;
+  current_symbol?: string;
+  start_time?: string;
+  end_time?: string;
+  error_message?: string;
+  result?: Record<string, any>;
+}
+
+export interface DetailedHealth {
+  status: string;
+  version?: string;
+  environment?: string;
+  components?: {
+    database?: {
+      connection?: { status?: string };
+      pool?: { status?: string; utilization_percent?: number };
+    };
+  };
+}
+
+export interface HealthMetrics {
+  api_metrics?: {
+    total_requests?: number;
+    avg_response_time?: number;
+    error_rate?: number;
+  };
+  system_metrics?: {
+    cpu_usage?: number;
+    memory_usage?: number;
+    disk_usage?: number;
+  };
+}
+
+export interface DatabaseHealth {
+  overall_status?: string;
+  connection?: { status?: string };
+  connection_pool?: {
+    status?: string;
+    checked_out?: number;
+    pool_size?: number;
+  };
+  performance?: { average_query_time_ms?: number };
+}

@@ -17,6 +17,7 @@ import {
   BarsOutlined,
   MenuOutlined,
   HomeOutlined,
+  DatabaseOutlined,
 } from '@ant-design/icons';
 import WebSocketIndicator from './WebSocketIndicator';
 import { useWebSocketConnection } from '@/stores/websocketStore';
@@ -79,6 +80,11 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       icon: <LineChartOutlined />,
       label: '纸上交易',
     },
+    {
+      key: '/data-center',
+      icon: <DatabaseOutlined />,
+      label: '数据中心',
+    },
   ];
 
   // 获取当前页面标题 - unused, removed
@@ -91,6 +97,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       '/strategy': '策略管理',
       '/ai': 'AI助手',
       '/trading': '纸上交易',
+      '/data-center': '数据中心',
     };
 
     const items = [

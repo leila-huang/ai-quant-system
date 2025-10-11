@@ -40,11 +40,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             # 内容安全策略 (开发环境相对宽松)
             "Content-Security-Policy": (
                 "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
-                "style-src 'self' 'unsafe-inline'; "
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; "
+                "style-src 'self' 'unsafe-inline' https:; "
                 "img-src 'self' data: https:; "
-                "font-src 'self' data:; "
-                "connect-src 'self' ws: wss:; "
+                "font-src 'self' data: https:; "
+                "connect-src 'self' ws: wss: https:; "
                 "frame-ancestors 'none';"
             ),
             

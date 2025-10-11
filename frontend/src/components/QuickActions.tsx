@@ -1,4 +1,4 @@
-import { Card, Button, Space, message, Modal } from 'antd';
+import { Card, Button, Space, App } from 'antd';
 import {
   SyncOutlined,
   DatabaseOutlined,
@@ -9,7 +9,13 @@ import {
   ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import { useState } from 'react';
-import { dataApi } from '@/services';
+import { dataApi, dataSyncApi, apiRequest } from '@/services';
+import type {
+  DetailedHealth,
+  HealthMetrics,
+  DatabaseHealth,
+} from '@/types/api';
+import { pollUntil } from '@/utils/polling';
 import { useAppStore } from '@/stores';
 
 interface QuickActionsProps {
@@ -26,6 +32,7 @@ const QuickActions: React.FC<QuickActionsProps> = ({
   className,
 }) => {
   const [loading, setLoading] = useState<Record<string, boolean>>({});
+  const { message, modal } = App.useApp();
   const { addNotification } = useAppStore();
 
   // 设置加载状态
@@ -40,10 +47,17 @@ const QuickActions: React.FC<QuickActionsProps> = ({
     try {
       message.loading({ content: '正在刷新数据...', key: 'refresh' });
 
-      // 模拟刷新操作
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // 并行获取数据状态与存储统计
+      const [status] = await Promise.all([
+        dataApi.getStatus(),
+        // 可按需展示：await dataApi.getStorageStats()
+      ]);
 
-      message.success({ content: '数据刷新完成', key: 'refresh', duration: 2 });
+      message.success({
+        content: `数据刷新完成（数据源:${status.data_sources?.[0]?.status || 'unknown'}）`,
+        key: 'refresh',
+        duration: 2,
+      });
 
       addNotification({
         type: 'success',
@@ -55,7 +69,7 @@ const QuickActions: React.FC<QuickActionsProps> = ({
       if (onRefreshData) {
         onRefreshData();
       }
-    } catch (error) {
+    } catch {
       message.error({ content: '刷新失败', key: 'refresh' });
 
       addNotification({
@@ -70,7 +84,7 @@ const QuickActions: React.FC<QuickActionsProps> = ({
 
   // 数据同步
   const handleDataSync = () => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认数据同步',
       icon: <ExclamationCircleOutlined />,
       content: '数据同步可能需要较长时间，是否继续？',
@@ -80,23 +94,58 @@ const QuickActions: React.FC<QuickActionsProps> = ({
         setActionLoading('sync', true);
 
         try {
-          message.loading({ content: '正在同步数据...', key: 'sync' });
+          message.loading({ content: '正在创建同步任务...', key: 'sync' });
 
-          // 模拟同步操作
-          await new Promise(resolve => setTimeout(resolve, 5000));
+          // 创建异步数据同步任务（默认AKShare最近30天）
+          const resp = await dataSyncApi.createSyncTask({
+            async_mode: true,
+            data_source: 'akshare',
+          });
+          const { task_id } = resp;
 
-          message.success({
-            content: '数据同步完成',
-            key: 'sync',
-            duration: 3,
+          const last = await pollUntil({
+            fetch: () => dataSyncApi.getSyncTaskStatus(task_id),
+            isDone: s =>
+              ['success', 'failed', 'cancelled'].includes(s.status as string),
+            intervalMs: 2000,
+            timeoutMs: 120000,
+            onTick: s => {
+              const progressText = `同步进行中：${Math.round(s.progress)}%`;
+              message.loading({ content: progressText, key: 'sync' });
+            },
           });
 
-          addNotification({
-            type: 'success',
-            title: '同步完成',
-            message: '已成功同步最新的股票数据',
-          });
-        } catch (error) {
+          if (last.status === 'success') {
+            message.success({
+              content: '数据同步完成',
+              key: 'sync',
+              duration: 3,
+            });
+            addNotification({
+              type: 'success',
+              title: '同步完成',
+              message: `已成功同步股票数据（共${last.symbols_completed || 0}只）`,
+            });
+            if (onRefreshData) onRefreshData();
+          } else if (last.status === 'running' || last.status === 'pending') {
+            message.warning({
+              content: '同步仍在进行中，稍后可在系统监控查看进度',
+              key: 'sync',
+              duration: 3,
+            });
+          } else {
+            message.error({
+              content: `同步结束：${last.status}`,
+              key: 'sync',
+              duration: 3,
+            });
+            addNotification({
+              type: 'error',
+              title: '同步未成功',
+              message: last.error_message || '请稍后重试',
+            });
+          }
+        } catch {
           message.error({ content: '同步失败', key: 'sync' });
 
           addNotification({
@@ -136,7 +185,7 @@ const QuickActions: React.FC<QuickActionsProps> = ({
       if (onRefreshData) {
         onRefreshData();
       }
-    } catch (error) {
+    } catch {
       message.error({ content: '创建样本数据失败', key: 'sample' });
 
       addNotification({
@@ -150,28 +199,47 @@ const QuickActions: React.FC<QuickActionsProps> = ({
   };
 
   // 系统监控
-  const handleSystemMonitor = () => {
-    Modal.info({
-      title: '系统监控',
-      content: (
-        <div style={{ padding: '16px 0' }}>
-          <p>系统监控功能将在后续版本中提供，敬请期待！</p>
-          <p>计划功能包括：</p>
-          <ul style={{ marginLeft: '20px' }}>
-            <li>实时性能监控</li>
-            <li>资源使用统计</li>
-            <li>系统日志查看</li>
-            <li>异常报警设置</li>
-          </ul>
-        </div>
-      ),
-      okText: '知道了',
-    });
+  const handleSystemMonitor = async () => {
+    setActionLoading('monitor', true);
+    try {
+      const promises: [Promise<DetailedHealth>, Promise<HealthMetrics>] = [
+        apiRequest.get<DetailedHealth>('/health/detailed', undefined, {
+          cache: false,
+        }),
+        apiRequest.get<HealthMetrics>('/health/metrics', undefined, {
+          cache: false,
+        }),
+      ];
+      const [health, metrics] = await Promise.all(promises);
+
+      modal.info({
+        title: '系统监控',
+        content: (
+          <div style={{ padding: '16px 0' }}>
+            <p>总体状态：{health.status}</p>
+            <p>
+              版本：{health.version} 环境：{health.environment}
+            </p>
+            <p>数据库连接：{health.components?.database?.connection?.status}</p>
+            <p>
+              连接池：{health.components?.database?.pool?.status}（利用率{' '}
+              {health.components?.database?.pool?.utilization_percent || 0}%）
+            </p>
+            <p>API平均响应：{metrics.api_metrics?.avg_response_time || 0} ms</p>
+          </div>
+        ),
+        okText: '知道了',
+      });
+    } catch {
+      message.error('获取系统监控信息失败');
+    } finally {
+      setActionLoading('monitor', false);
+    }
   };
 
   // 系统设置
   const handleSystemSettings = () => {
-    Modal.info({
+    modal.info({
       title: '系统设置',
       content: (
         <div style={{ padding: '16px 0' }}>
@@ -219,7 +287,38 @@ const QuickActions: React.FC<QuickActionsProps> = ({
       title: '数据库',
       icon: <DatabaseOutlined />,
       description: '数据库管理和维护',
-      onClick: () => message.info('数据库管理功能开发中'),
+      onClick: async () => {
+        setActionLoading('database', true);
+        try {
+          const db = await apiRequest.get<DatabaseHealth>(
+            '/health/database',
+            undefined,
+            { cache: false }
+          );
+          modal.info({
+            title: '数据库健康',
+            content: (
+              <div style={{ padding: '16px 0' }}>
+                <p>连接：{db.connection?.status}</p>
+                <p>
+                  连接池：{db.connection_pool?.status}（已借出{' '}
+                  {db.connection_pool?.checked_out || 0}/
+                  {db.connection_pool?.pool_size || 0}）
+                </p>
+                <p>
+                  平均查询耗时：{db.performance?.average_query_time_ms || 0} ms
+                </p>
+                <p>总体：{db.overall_status}</p>
+              </div>
+            ),
+            okText: '知道了',
+          });
+        } catch {
+          message.error('获取数据库健康信息失败');
+        } finally {
+          setActionLoading('database', false);
+        }
+      },
       type: 'default' as const,
     },
     {
@@ -304,4 +403,3 @@ const QuickActions: React.FC<QuickActionsProps> = ({
 };
 
 export default QuickActions;
-

@@ -31,6 +31,10 @@ import type {
 } from '@/types/api';
 import type { TimeSeriesDataPoint } from '@/types/charts';
 import { backtestApi } from '@/services';
+import {
+  useBacktestProgress,
+  useWebSocketConnection,
+} from '@/stores/websocketStore';
 // formatChartValue unused, removed
 
 // Text unused, removed
@@ -60,26 +64,29 @@ const BacktestResults: React.FC<BacktestResultsProps> = ({
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<BacktestStatusResponse | null>(null);
 
-  // 如果是异步执行的回测，定期检查状态
+  // 使用WebSocket获取实时回测进度
+  const { connect } = useWebSocketConnection(true); // 自动连接
+  const backtestProgress = useBacktestProgress(backtest.backtest_id);
+
+  // 当WebSocket收到回测进度更新时，更新本地状态
   useEffect(() => {
-    if (backtest.status === 'pending' || backtest.status === 'running') {
-      const checkStatus = async () => {
-        try {
-          const statusResponse = await backtestApi.getBacktestStatus(
-            backtest.backtest_id
-          );
-          setStatus(statusResponse);
-        } catch (error) {
-          console.error('查询回测状态失败:', error);
-        }
-      };
-
-      const interval = setInterval(checkStatus, 3000); // 每3秒检查一次
-      checkStatus(); // 立即执行一次
-
-      return () => clearInterval(interval);
+    if (backtestProgress) {
+      setStatus({
+        backtest_id: backtest.backtest_id,
+        status: backtestProgress.status,
+        progress: backtestProgress.progress,
+        current_step: backtestProgress.current_step,
+        error_message: backtestProgress.error_message,
+        started_at: '', // WebSocket消息中没有这些字段，保持为空
+        updated_at: new Date().toISOString(),
+      });
     }
-  }, [backtest.backtest_id, backtest.status]);
+  }, [backtestProgress, backtest.backtest_id]);
+
+  // 确保WebSocket连接已建立
+  useEffect(() => {
+    connect();
+  }, [connect]);
 
   // 获取详细结果
   const fetchDetailResults = async () => {

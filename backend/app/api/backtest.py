@@ -13,6 +13,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import tempfile
+import logging
 
 from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, status, Response
 from fastapi.responses import FileResponse
@@ -30,9 +31,13 @@ from backend.src.engine.backtest.constraints import AStockConstraints, Constrain
 from backend.src.engine.backtest.cost_model import TradingCostModel, CostConfig, BrokerType
 from backend.src.engine.backtest.report_generator import BacktestReportGenerator, ReportConfig
 from backend.src.engine.backtest.metrics import PerformanceAnalyzer
+from backend.app.api.websocket import broadcast_backtest_progress
 
 
 router = APIRouter()
+
+# 模块级日志记录器
+logger = logging.getLogger(__name__)
 
 # 全局线程池用于异步回测
 backtest_executor = ThreadPoolExecutor(max_workers=3)
@@ -625,6 +630,14 @@ async def _execute_backtest(backtest_id: str, request: BacktestRequest, task_id:
             _backtest_tasks[task_id]["progress"] = 0.1
             _backtest_tasks[task_id]["current_step"] = "初始化回测引擎"
             _backtest_tasks[task_id]["updated_at"] = datetime.now().isoformat()
+            
+            # WebSocket推送进度
+            await broadcast_backtest_progress(
+                backtest_id=backtest_id,
+                status="running", 
+                progress=0.1,
+                current_step="初始化回测引擎"
+            )
         
         # 创建交易配置
         trading_config = TradingConfig(
@@ -649,7 +662,8 @@ async def _execute_backtest(backtest_id: str, request: BacktestRequest, task_id:
                 "low_commission": BrokerType.DISCOUNT,
                 "minimum": BrokerType.DISCOUNT
             }
-            cost_model = TradingCostModel(broker_type=broker_type_map.get(request.broker_type, BrokerType.STANDARD))
+            cost_config = CostConfig(broker_type=broker_type_map.get(request.broker_type, BrokerType.STANDARD))
+            cost_model = TradingCostModel(config=cost_config)
         
         # 创建回测引擎
         engine = VectorbtBacktestEngine(
@@ -665,36 +679,93 @@ async def _execute_backtest(backtest_id: str, request: BacktestRequest, task_id:
             _backtest_tasks[task_id]["progress"] = 0.3
             _backtest_tasks[task_id]["current_step"] = "加载股票数据"
             _backtest_tasks[task_id]["updated_at"] = datetime.now().isoformat()
-        
-        # 这里需要实现具体的策略信号生成逻辑
-        # 暂时使用模拟信号
-        dates = pd.date_range(start=request.start_date, end=request.end_date, freq='D')
-        signals_data = {}
-        
-        for symbol in request.universe[:10]:  # 限制数量以加快演示
-            # 生成模拟的买卖信号
-            np.random.seed(42)
-            signals = pd.Series(
-                np.random.choice([0, 1, -1], size=len(dates), p=[0.8, 0.1, 0.1]),
-                index=dates,
-                name=symbol
+            
+            # WebSocket推送进度
+            await broadcast_backtest_progress(
+                backtest_id=backtest_id,
+                status="running",
+                progress=0.3,
+                current_step="加载股票数据"
             )
-            signals_data[symbol] = signals
         
-        signals_df = pd.DataFrame(signals_data)
+        # 数据预加载和验证逻辑
+        from backend.src.storage.parquet_engine import get_parquet_storage
+        from backend.src.engine.features.indicators import TechnicalIndicators
+        
+        storage = get_parquet_storage()
+        indicator_calculator = TechnicalIndicators()
+        
+        # 预加载和验证所有股票数据
+        validated_data = await _preload_and_validate_data(
+            storage, request.universe[:10], request.start_date, request.end_date, task_id, backtest_id
+        )
+        
+        if not validated_data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="没有找到有效的股票数据，请检查股票代码和日期范围"
+            )
+        
+        # 使用验证后的数据生成交易信号
+        signals_data = {}
+        strategy_type = request.strategy_config.strategy_type
+        strategy_params = request.strategy_config.parameters
+        
+        # 更新进度：生成交易信号
+        if task_id:
+            _backtest_tasks[task_id]["progress"] = 0.5
+            _backtest_tasks[task_id]["current_step"] = "生成交易信号"
+            _backtest_tasks[task_id]["updated_at"] = datetime.now().isoformat()
+            
+            # WebSocket推送进度
+            await broadcast_backtest_progress(
+                backtest_id=backtest_id,
+                status="running",
+                progress=0.5,
+                current_step="生成交易信号"
+            )
+        
+        for symbol, df in validated_data.items():
+            try:
+                # 根据策略类型生成信号
+                if strategy_type == "ma_crossover":
+                    signals = _generate_ma_crossover_signals(df, indicator_calculator, strategy_params)
+                elif strategy_type == "rsi_mean_reversion":
+                    signals = _generate_rsi_signals(df, indicator_calculator, strategy_params)
+                elif strategy_type == "momentum":
+                    signals = _generate_momentum_signals(df, indicator_calculator, strategy_params)
+                else:
+                    # 默认使用双均线策略
+                    signals = _generate_ma_crossover_signals(df, indicator_calculator, strategy_params)
+                
+                signals_data[symbol] = signals
+                
+            except Exception as e:
+                logger.error(f"生成股票 {symbol} 交易信号时出错: {e}")
+                continue
+        
+        signals_df = pd.DataFrame(signals_data) if signals_data else pd.DataFrame()
         
         # 更新进度：执行回测
         if task_id:
             _backtest_tasks[task_id]["progress"] = 0.6
             _backtest_tasks[task_id]["current_step"] = "执行策略回测"
             _backtest_tasks[task_id]["updated_at"] = datetime.now().isoformat()
+            
+            # WebSocket推送进度
+            await broadcast_backtest_progress(
+                backtest_id=backtest_id,
+                status="running",
+                progress=0.6,
+                current_step="执行策略回测"
+            )
         
         # 运行回测
         backtest_result = engine.run_backtest(
-            strategy_config=request.strategy_config.dict(),
-            universe=request.universe,
+            symbols=request.universe,
             start_date=request.start_date,
-            end_date=request.end_date
+            end_date=request.end_date,
+            strategy_names=request.strategy_config.strategy_type
         )
         
         # 更新进度：计算性能指标
@@ -702,6 +773,14 @@ async def _execute_backtest(backtest_id: str, request: BacktestRequest, task_id:
             _backtest_tasks[task_id]["progress"] = 0.8
             _backtest_tasks[task_id]["current_step"] = "计算性能指标"
             _backtest_tasks[task_id]["updated_at"] = datetime.now().isoformat()
+            
+            # WebSocket推送进度
+            await broadcast_backtest_progress(
+                backtest_id=backtest_id,
+                status="running",
+                progress=0.8,
+                current_step="计算性能指标"
+            )
         
         # 提取关键指标
         metrics = backtest_result.metrics
@@ -735,6 +814,15 @@ async def _execute_backtest(backtest_id: str, request: BacktestRequest, task_id:
         with open(results_path, 'w', encoding='utf-8') as f:
             json.dump(results_data, f, ensure_ascii=False, indent=2, default=str)
         
+        # WebSocket推送完成状态
+        if task_id:
+            await broadcast_backtest_progress(
+                backtest_id=backtest_id,
+                status="completed",
+                progress=1.0,
+                current_step="回测完成"
+            )
+        
         return BacktestResponse(
             backtest_id=backtest_id,
             backtest_name=request.backtest_name,
@@ -749,7 +837,364 @@ async def _execute_backtest(backtest_id: str, request: BacktestRequest, task_id:
         )
         
     except Exception as e:
+        # WebSocket推送错误状态
+        if task_id:
+            await broadcast_backtest_progress(
+                backtest_id=backtest_id,
+                status="failed",
+                progress=0.0,
+                current_step="回测失败",
+                error_message=str(e)
+            )
+        
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"回测执行失败: {str(e)}"
         )
+
+
+def _generate_ma_crossover_signals(df: pd.DataFrame, indicator_calculator, params: dict) -> pd.Series:
+    """生成双均线交叉策略信号"""
+    fast_period = params.get('fast_period', 5)
+    slow_period = params.get('slow_period', 20)
+    
+    # 计算移动平均线
+    df_with_ma = indicator_calculator._add_ma_indicators(df, ma_windows=[fast_period, slow_period])
+    
+    # 生成交叉信号
+    fast_ma = df_with_ma[f'ma_{fast_period}']
+    slow_ma = df_with_ma[f'ma_{slow_period}']
+    
+    # 信号：1=买入，-1=卖出，0=持有
+    signals = pd.Series(0, index=df_with_ma.index)
+    
+    # 快线上穿慢线：买入信号
+    golden_cross = (fast_ma > slow_ma) & (fast_ma.shift(1) <= slow_ma.shift(1))
+    signals[golden_cross] = 1
+    
+    # 快线下穿慢线：卖出信号
+    death_cross = (fast_ma < slow_ma) & (fast_ma.shift(1) >= slow_ma.shift(1))
+    signals[death_cross] = -1
+    
+    return signals
+
+
+def _generate_rsi_signals(df: pd.DataFrame, indicator_calculator, params: dict) -> pd.Series:
+    """生成RSI均值回归策略信号"""
+    rsi_period = params.get('rsi_period', 14)
+    oversold_threshold = params.get('oversold_threshold', 30)
+    overbought_threshold = params.get('overbought_threshold', 70)
+    
+    # 计算RSI
+    df_with_rsi = indicator_calculator._add_rsi_indicators(df, rsi_windows=[rsi_period])
+    rsi = df_with_rsi[f'rsi_{rsi_period}']
+    
+    # 生成信号
+    signals = pd.Series(0, index=df_with_rsi.index)
+    
+    # RSI < 30：超卖，买入信号
+    oversold = rsi < oversold_threshold
+    signals[oversold] = 1
+    
+    # RSI > 70：超买，卖出信号
+    overbought = rsi > overbought_threshold
+    signals[overbought] = -1
+    
+    return signals
+
+
+def _generate_momentum_signals(df: pd.DataFrame, indicator_calculator, params: dict) -> pd.Series:
+    """生成动量策略信号"""
+    lookback_period = params.get('lookback_period', 20)
+    momentum_threshold = params.get('momentum_threshold', 0.02)  # 2%
+    
+    # 计算价格动量
+    close_prices = df['close']
+    momentum = (close_prices / close_prices.shift(lookback_period) - 1)
+    
+    # 生成信号
+    signals = pd.Series(0, index=df.index)
+    
+    # 正动量超过阈值：买入信号
+    strong_momentum = momentum > momentum_threshold
+    signals[strong_momentum] = 1
+    
+    # 负动量超过阈值：卖出信号
+    weak_momentum = momentum < -momentum_threshold
+    signals[weak_momentum] = -1
+    
+    return signals
+
+
+# 数据缓存 - 使用模块级变量避免重复加载
+_data_cache = {}
+_cache_max_size = 100  # 最大缓存数量
+
+
+async def _preload_and_validate_data(storage, symbols: List[str], start_date: date, end_date: date, 
+                                   task_id: str = None, backtest_id: str = None) -> Dict[str, pd.DataFrame]:
+    """
+    预加载和验证股票数据
+    
+    Args:
+        storage: 数据存储引擎
+        symbols: 股票代码列表
+        start_date: 开始日期
+        end_date: 结束日期
+        task_id: 任务ID（可选）
+        backtest_id: 回测ID（可选）
+        
+    Returns:
+        Dict[str, pd.DataFrame]: 验证后的股票数据字典
+    """
+    validated_data = {}
+    missing_symbols = []
+    invalid_symbols = []
+    
+    logger.info(f"开始预加载 {len(symbols)} 只股票的数据...")
+    
+    for i, symbol in enumerate(symbols):
+        try:
+            # 生成缓存键
+            cache_key = f"{symbol}_{start_date}_{end_date}"
+            
+            # 检查缓存
+            if cache_key in _data_cache:
+                logger.debug(f"从缓存加载股票 {symbol} 数据")
+                df = _data_cache[cache_key]
+                validated_data[symbol] = df
+                continue
+            
+            # 从存储加载数据
+            stock_data = storage.load_stock_data(
+                symbol=symbol,
+                start_date=start_date,
+                end_date=end_date
+            )
+            
+            if not stock_data or not stock_data.bars:
+                missing_symbols.append(symbol)
+                logger.warning(f"股票 {symbol} 没有数据")
+                continue
+            
+            # 转换为DataFrame
+            df = stock_data.to_dataframe()
+            
+            if df.empty:
+                missing_symbols.append(symbol)
+                logger.warning(f"股票 {symbol} 数据为空")
+                continue
+            
+            # 数据质量验证
+            validation_result = _validate_stock_data(df, symbol, start_date, end_date)
+            
+            if not validation_result['is_valid']:
+                invalid_symbols.append(symbol)
+                logger.warning(f"股票 {symbol} 数据验证失败: {validation_result['message']}")
+                continue
+            
+            # 数据预处理
+            df = _preprocess_stock_data(df, symbol)
+            
+            # 缓存数据
+            _cache_data(cache_key, df)
+            
+            validated_data[symbol] = df
+            logger.debug(f"股票 {symbol} 数据加载并验证成功，数据点数: {len(df)}")
+            
+            # 更新进度
+            if task_id and backtest_id:
+                progress = 0.3 + (i + 1) / len(symbols) * 0.2  # 0.3-0.5之间
+                _backtest_tasks[task_id]["progress"] = progress
+                _backtest_tasks[task_id]["current_step"] = f"加载数据 ({i+1}/{len(symbols)})"
+                _backtest_tasks[task_id]["updated_at"] = datetime.now().isoformat()
+                
+                # WebSocket推送详细进度
+                await broadcast_backtest_progress(
+                    backtest_id=backtest_id,
+                    status="running",
+                    progress=progress,
+                    current_step=f"加载股票数据 ({i+1}/{len(symbols)})"
+                )
+            
+        except Exception as e:
+            invalid_symbols.append(symbol)
+            logger.error(f"加载股票 {symbol} 数据时出错: {e}")
+            continue
+    
+    # 生成加载报告
+    total_symbols = len(symbols)
+    loaded_symbols = len(validated_data)
+    missing_count = len(missing_symbols)
+    invalid_count = len(invalid_symbols)
+    
+    logger.info(f"数据加载完成: 总数 {total_symbols}, 成功 {loaded_symbols}, 缺失 {missing_count}, 无效 {invalid_count}")
+    
+    if missing_symbols:
+        logger.warning(f"缺失数据的股票: {missing_symbols}")
+    
+    if invalid_symbols:
+        logger.warning(f"数据无效的股票: {invalid_symbols}")
+    
+    return validated_data
+
+
+def _validate_stock_data(df: pd.DataFrame, symbol: str, start_date: date, end_date: date) -> Dict[str, Any]:
+    """
+    验证股票数据质量
+    
+    Args:
+        df: 股票数据DataFrame
+        symbol: 股票代码
+        start_date: 期望开始日期
+        end_date: 期望结束日期
+        
+    Returns:
+        Dict[str, Any]: 验证结果
+    """
+    try:
+        # 检查必需列
+        required_columns = ['date', 'open', 'high', 'low', 'close', 'volume']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        
+        if missing_columns:
+            return {
+                'is_valid': False,
+                'message': f"缺少必需列: {missing_columns}"
+            }
+        
+        # 检查数据点数量
+        min_data_points = 30  # 至少需要30个数据点
+        if len(df) < min_data_points:
+            return {
+                'is_valid': False,
+                'message': f"数据点不足，需要至少{min_data_points}个，实际{len(df)}个"
+            }
+        
+        # 检查日期范围
+        df['date'] = pd.to_datetime(df['date'])
+        actual_start = df['date'].min().date()
+        actual_end = df['date'].max().date()
+        
+        # 允许一定的日期偏差（考虑到节假日等因素）
+        date_tolerance = timedelta(days=30)
+        
+        if actual_start > start_date + date_tolerance:
+            return {
+                'is_valid': False,
+                'message': f"数据开始日期 {actual_start} 晚于期望日期 {start_date} 过多"
+            }
+        
+        if actual_end < end_date - date_tolerance:
+            return {
+                'is_valid': False,
+                'message': f"数据结束日期 {actual_end} 早于期望日期 {end_date} 过多"
+            }
+        
+        # 检查价格数据的合理性
+        for price_col in ['open', 'high', 'low', 'close']:
+            if (df[price_col] <= 0).any():
+                return {
+                    'is_valid': False,
+                    'message': f"{price_col}列存在非正数值"
+                }
+        
+        # 检查OHLC逻辑关系
+        if ((df['high'] < df['low']) | 
+            (df['high'] < df['open']) | 
+            (df['high'] < df['close']) |
+            (df['low'] > df['open']) |
+            (df['low'] > df['close'])).any():
+            return {
+                'is_valid': False,
+                'message': "OHLC数据存在逻辑错误"
+            }
+        
+        # 检查成交量
+        if (df['volume'] < 0).any():
+            return {
+                'is_valid': False,
+                'message': "成交量存在负数"
+            }
+        
+        return {
+            'is_valid': True,
+            'message': "数据验证通过",
+            'data_points': len(df),
+            'date_range': (actual_start, actual_end)
+        }
+        
+    except Exception as e:
+        return {
+            'is_valid': False,
+            'message': f"数据验证时出错: {str(e)}"
+        }
+
+
+def _preprocess_stock_data(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    """
+    预处理股票数据
+    
+    Args:
+        df: 原始股票数据
+        symbol: 股票代码
+        
+    Returns:
+        pd.DataFrame: 预处理后的数据
+    """
+    try:
+        # 复制数据避免修改原始数据
+        processed_df = df.copy()
+        
+        # 确保日期列为datetime类型
+        processed_df['date'] = pd.to_datetime(processed_df['date'])
+        
+        # 按日期排序
+        processed_df = processed_df.sort_values('date').reset_index(drop=True)
+        
+        # 去除重复日期（保留最后一条记录）
+        processed_df = processed_df.drop_duplicates(subset=['date'], keep='last')
+        
+        # 处理缺失值（前向填充，但限制填充范围）
+        numeric_columns = ['open', 'high', 'low', 'close', 'volume']
+        for col in numeric_columns:
+            if col in processed_df.columns:
+                # 前向填充，但限制最多填充3个连续缺失值
+                processed_df[col] = processed_df[col].fillna(method='ffill', limit=3)
+        
+        # 计算基本技术指标作为预处理的一部分
+        processed_df['returns'] = processed_df['close'].pct_change()
+        processed_df['log_returns'] = np.log(processed_df['close'] / processed_df['close'].shift(1))
+        
+        # 计算简单移动平均作为数据平滑
+        processed_df['sma_5'] = processed_df['close'].rolling(window=5).mean()
+        processed_df['sma_20'] = processed_df['close'].rolling(window=20).mean()
+        
+        logger.debug(f"股票 {symbol} 数据预处理完成，最终数据点数: {len(processed_df)}")
+        
+        return processed_df
+        
+    except Exception as e:
+        logger.error(f"预处理股票 {symbol} 数据时出错: {e}")
+        return df  # 返回原始数据
+
+
+def _cache_data(cache_key: str, data: pd.DataFrame):
+    """
+    缓存数据
+    
+    Args:
+        cache_key: 缓存键
+        data: 要缓存的数据
+    """
+    global _data_cache
+    
+    # 如果缓存已满，删除最旧的条目
+    if len(_data_cache) >= _cache_max_size:
+        # 删除第一个条目（最旧的）
+        oldest_key = next(iter(_data_cache))
+        del _data_cache[oldest_key]
+        logger.debug(f"缓存已满，删除最旧条目: {oldest_key}")
+    
+    _data_cache[cache_key] = data.copy()
+    logger.debug(f"数据已缓存: {cache_key}, 当前缓存大小: {len(_data_cache)}")

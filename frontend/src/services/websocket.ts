@@ -103,7 +103,7 @@ class WebSocketClient {
   private statusHandlers: Array<(status: WebSocketStatus) => void> = [];
   private isManualClose = false;
 
-  constructor(url: string = 'ws://localhost:3000/ws') {
+  constructor(url: string = 'ws://localhost:8000/ws') {
     this.url = url;
 
     // 监听页面可见性变化

@@ -3,6 +3,7 @@
 export { default as apiClient, apiRequest, healthApi } from './api';
 export { dataApi, default as dataApiDefault } from './dataApi';
 export { default as backtestApi } from './backtestApi';
+export { dataSyncApi, default as dataSyncApiDefault } from './dataSyncApi';
 
 // 策略管理API
 export { strategyApi, default as strategyApiDefault } from './strategyApi';

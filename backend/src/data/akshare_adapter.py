@@ -273,6 +273,244 @@ class AKShareAdapter:
             logger.error(f"获取股票列表失败: {e}")
             return []
     
+    def get_stock_fundamental_data(self, symbol: str, year: Optional[int] = None) -> Optional[Dict]:
+        """
+        获取股票财务数据
+        
+        Args:
+            symbol: 股票代码
+            year: 财报年份（默认最近一年）
+            
+        Returns:
+            Dict: 财务指标数据
+        """
+        try:
+            if year is None:
+                year = datetime.now().year
+            
+            def _fetch_fundamental():
+                # 获取财务指标
+                return ak.stock_financial_analysis_indicator(symbol=symbol)
+            
+            df = self._retry_request(_fetch_fundamental)
+            
+            if df is None or df.empty:
+                logger.warning(f"股票 {symbol} 未获取到财务数据")
+                return None
+            
+            # 筛选最近一年的数据
+            if '季度' in df.columns:
+                df = df.sort_values('季度', ascending=False)
+                latest = df.iloc[0]
+                
+                fundamental_data = {
+                    'symbol': symbol,
+                    'date': latest.get('季度'),
+                    'eps': float(latest.get('每股收益', 0)),  # 每股收益
+                    'roe': float(latest.get('净资产收益率', 0)),  # 净资产收益率
+                    'operating_revenue': float(latest.get('营业收入', 0)),  # 营业收入
+                    'net_profit': float(latest.get('净利润', 0)),  # 净利润
+                    'total_assets': float(latest.get('总资产', 0)),  # 总资产
+                    'total_liabilities': float(latest.get('总负债', 0)),  # 总负债
+                    'gross_profit_margin': float(latest.get('销售毛利率', 0)),  # 毛利率
+                    'debt_to_asset_ratio': float(latest.get('资产负债比率', 0)),  # 资产负债率
+                }
+                
+                logger.info(f"成功获取股票 {symbol} 财务数据")
+                return fundamental_data
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"获取股票 {symbol} 财务数据失败: {e}")
+            return None
+    
+    def get_stock_industry_classification(self, symbol: str) -> Optional[Dict]:
+        """
+        获取股票行业分类
+        
+        Args:
+            symbol: 股票代码
+            
+        Returns:
+            Dict: 行业分类信息
+        """
+        try:
+            def _fetch_industry():
+                # 获取行业分类
+                return ak.stock_individual_info_em(symbol=symbol)
+            
+            df = self._retry_request(_fetch_industry)
+            
+            if df is None or df.empty:
+                logger.warning(f"股票 {symbol} 未获取到行业分类")
+                return None
+            
+            # 提取行业信息
+            industry_data = {}
+            for _, row in df.iterrows():
+                item = row.get('item', '')
+                value = row.get('value', '')
+                
+                if '行业' in item:
+                    industry_data['industry'] = str(value)
+                elif '板块' in item or '概念' in item:
+                    if 'sectors' not in industry_data:
+                        industry_data['sectors'] = []
+                    industry_data['sectors'].append(str(value))
+            
+            if industry_data:
+                industry_data['symbol'] = symbol
+                logger.info(f"成功获取股票 {symbol} 行业分类: {industry_data.get('industry', 'Unknown')}")
+                return industry_data
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"获取股票 {symbol} 行业分类失败: {e}")
+            return None
+    
+    def get_stock_realtime_quote(self, symbol: str) -> Optional[Dict]:
+        """
+        获取股票实时行情
+        
+        Args:
+            symbol: 股票代码
+            
+        Returns:
+            Dict: 实时行情数据
+        """
+        try:
+            def _fetch_realtime():
+                return ak.stock_zh_a_spot_em()
+            
+            df = self._retry_request(_fetch_realtime)
+            
+            if df is None or df.empty:
+                logger.warning("获取实时行情失败")
+                return None
+            
+            # 筛选指定股票
+            stock_df = df[df['代码'] == symbol]
+            
+            if stock_df.empty:
+                logger.warning(f"未找到股票 {symbol} 的实时行情")
+                return None
+            
+            row = stock_df.iloc[0]
+            
+            quote_data = {
+                'symbol': symbol,
+                'name': str(row.get('名称', '')),
+                'latest_price': float(row.get('最新价', 0)),
+                'change_pct': float(row.get('涨跌幅', 0)),
+                'change_amount': float(row.get('涨跌额', 0)),
+                'volume': float(row.get('成交量', 0)),
+                'amount': float(row.get('成交额', 0)),
+                'open_price': float(row.get('今开', 0)),
+                'high_price': float(row.get('最高', 0)),
+                'low_price': float(row.get('最低', 0)),
+                'pre_close': float(row.get('昨收', 0)),
+                'timestamp': datetime.now()
+            }
+            
+            logger.debug(f"获取股票 {symbol} 实时行情: {quote_data['latest_price']}")
+            return quote_data
+            
+        except Exception as e:
+            logger.error(f"获取股票 {symbol} 实时行情失败: {e}")
+            return None
+    
+    def get_trading_calendar(self, year: Optional[int] = None) -> List[date]:
+        """
+        获取交易日历
+        
+        Args:
+            year: 年份（默认当年）
+            
+        Returns:
+            List[date]: 交易日列表
+        """
+        try:
+            if year is None:
+                year = datetime.now().year
+            
+            def _fetch_calendar():
+                return ak.tool_trade_date_hist_sina()
+            
+            df = self._retry_request(_fetch_calendar)
+            
+            if df is None or df.empty:
+                logger.warning("获取交易日历失败")
+                return []
+            
+            # 筛选指定年份
+            df['trade_date'] = pd.to_datetime(df['trade_date'])
+            year_df = df[df['trade_date'].dt.year == year]
+            
+            trading_days = [d.date() for d in year_df['trade_date']]
+            trading_days.sort()
+            
+            logger.info(f"{year}年交易日历: 共 {len(trading_days)} 个交易日")
+            return trading_days
+            
+        except Exception as e:
+            logger.error(f"获取交易日历失败: {e}")
+            return []
+    
+    def get_index_data(self, 
+                      index_code: str = "000001",  # 上证指数
+                      start_date: Optional[date] = None,
+                      end_date: Optional[date] = None) -> pd.DataFrame:
+        """
+        获取指数数据
+        
+        Args:
+            index_code: 指数代码
+            start_date: 开始日期
+            end_date: 结束日期
+            
+        Returns:
+            DataFrame: 指数数据
+        """
+        try:
+            if not start_date:
+                start_date = date.today() - timedelta(days=365)
+            if not end_date:
+                end_date = date.today()
+            
+            start_str = start_date.strftime('%Y%m%d')
+            end_str = end_date.strftime('%Y%m%d')
+            
+            def _fetch_index():
+                return ak.stock_zh_index_daily(symbol=f"sh{index_code}")
+            
+            df = self._retry_request(_fetch_index)
+            
+            if df is None or df.empty:
+                logger.warning(f"指数 {index_code} 未获取到数据")
+                return pd.DataFrame()
+            
+            # 筛选日期范围
+            df['date'] = pd.to_datetime(df['date'])
+            df = df[(df['date'] >= pd.to_datetime(start_date)) & 
+                   (df['date'] <= pd.to_datetime(end_date))]
+            
+            # 标准化列名
+            df = df.rename(columns={
+                'close': 'close_price',
+                'open': 'open_price',
+                'high': 'high_price',
+                'low': 'low_price'
+            })
+            
+            logger.info(f"成功获取指数 {index_code} 数据，共 {len(df)} 条记录")
+            return df
+            
+        except Exception as e:
+            logger.error(f"获取指数 {index_code} 数据失败: {e}")
+            return pd.DataFrame()
+    
     def __del__(self):
         """清理资源"""
         if hasattr(self, 'executor'):

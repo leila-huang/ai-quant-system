@@ -83,27 +83,32 @@ class DataService:
             self.sync_tasks[task_id] = task
         
         # 确定要同步的股票列表
+        # 注意：当为异步模式且未指定 symbols 时，不在此处阻塞获取全量列表，
+        #       将列表获取延后至后台任务中执行，避免接口“无响应”。
         if request.symbols:
             symbols = request.symbols
         else:
-            # 获取全部股票列表
-            try:
-                symbols = await self._get_all_stock_symbols()
-            except Exception as e:
-                task.status = SyncStatus.FAILED
-                task.error_message = f"获取股票列表失败: {str(e)}"
-                logger.error(f"获取股票列表失败: {e}")
-                return DataSyncResponse(
-                    task_id=task_id,
-                    status=task.status,
-                    message=task.error_message,
-                    symbols_count=0
-                )
+            if request.async_mode:
+                symbols = None  # 延迟到后台任务中获取
+            else:
+                # 同步模式下需要立即获取，增加超时保护
+                try:
+                    symbols = await self._get_all_stock_symbols()
+                except Exception as e:
+                    task.status = SyncStatus.FAILED
+                    task.error_message = f"获取股票列表失败: {str(e)}"
+                    logger.error(f"获取股票列表失败: {e}")
+                    return DataSyncResponse(
+                        task_id=task_id,
+                        status=task.status,
+                        message=task.error_message,
+                        symbols_count=0
+                    )
         
-        task.symbols_total = len(symbols)
+        task.symbols_total = len(symbols) if symbols else 0
         
         # 预估完成时间（每个股票约2秒）
-        estimated_time = len(symbols) * 2
+        estimated_time = (len(symbols) * 2) if symbols else None
         
         # 如果是异步模式，立即返回任务ID
         if request.async_mode:
@@ -114,7 +119,7 @@ class DataService:
                 task_id=task_id,
                 status=SyncStatus.PENDING,
                 message="数据同步任务已创建，正在后台执行",
-                symbols_count=len(symbols),
+                symbols_count=len(symbols) if symbols else 0,
                 estimated_time=estimated_time
             )
         else:
@@ -156,15 +161,24 @@ class DataService:
         task.status = SyncStatus.RUNNING
         task.start_time = datetime.utcnow()
         
-        logger.info(f"开始执行数据同步任务 {task.task_id}，股票数量: {len(symbols)}")
-        
         try:
+            # 异步模式下可能延迟获取股票列表
+            if symbols is None:
+                logger.info("后台任务开始获取全量股票代码列表...")
+                symbols = await self._get_all_stock_symbols()
+                task.symbols_total = len(symbols)
+                if not symbols:
+                    raise RuntimeError("无法获取股票列表或列表为空")
+            
+            logger.info(f"开始执行数据同步任务 {task.task_id}，股票数量: {len(symbols)}")
+
             success_count = 0
             failed_count = 0
             
             for i, symbol in enumerate(symbols):
                 task.current_symbol = symbol
-                task.progress = (i / len(symbols)) * 100
+                # 在开始处理当前股票时更新一次进度，避免长时间停留在0%
+                task.progress = max(task.progress, (i / len(symbols)) * 100)
                 
                 try:
                     # 获取股票数据
@@ -200,6 +214,9 @@ class DataService:
                     task.symbols_failed += 1
                     task.failed_symbols.append(symbol)
                     logger.error(f"股票 {symbol} 数据同步失败: {e}")
+                finally:
+                    # 在每个股票处理结束后推进进度
+                    task.progress = ((i + 1) / len(symbols)) * 100
                 
                 # 避免请求过于频繁
                 await asyncio.sleep(0.1)
@@ -235,13 +252,20 @@ class DataService:
             if data_source == "akshare":
                 # 使用线程池执行同步的数据获取操作
                 loop = asyncio.get_event_loop()
-                stock_data = await loop.run_in_executor(
-                    self.executor,
-                    self.akshare_adapter.get_stock_data,
-                    symbol,
-                    start_date,
-                    end_date
-                )
+                try:
+                    stock_data = await asyncio.wait_for(
+                        loop.run_in_executor(
+                            self.executor,
+                            self.akshare_adapter.get_stock_data,
+                            symbol,
+                            start_date,
+                            end_date
+                        ),
+                        timeout=settings.AKSHARE_TIMEOUT
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(f"获取股票 {symbol} 数据超时 ({settings.AKSHARE_TIMEOUT}s)")
+                    return None
                 return stock_data
             else:
                 logger.warning(f"不支持的数据源: {data_source}")
@@ -255,11 +279,27 @@ class DataService:
         """获取所有股票代码"""
         try:
             loop = asyncio.get_event_loop()
-            symbols = await loop.run_in_executor(
-                self.executor,
-                self.akshare_adapter.get_stock_list
-            )
-            return [stock.symbol for stock in symbols if stock.symbol]
+            try:
+                symbols = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        self.executor,
+                        self.akshare_adapter.get_stock_list
+                    ),
+                    timeout=settings.AKSHARE_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                logger.error(f"获取股票列表超时 ({settings.AKSHARE_TIMEOUT}s)")
+                return []
+            # 适配返回为字典列表的情况
+            normalized = []
+            for stock in symbols:
+                if isinstance(stock, dict):
+                    sym = stock.get('symbol')
+                else:
+                    sym = getattr(stock, 'symbol', None)
+                if sym:
+                    normalized.append(sym)
+            return normalized
         except Exception as e:
             logger.error(f"获取股票列表失败: {e}")
             return []

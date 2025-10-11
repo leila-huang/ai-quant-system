@@ -5,7 +5,7 @@ import {
   Route,
   Navigate,
 } from 'react-router-dom';
-import { ConfigProvider, theme, Spin } from 'antd';
+import { ConfigProvider, theme, Spin, App as AntdApp } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 
 import MainLayout from '@/components/MainLayout';
@@ -19,6 +19,7 @@ const Backtest = lazy(() => import('@/pages/Backtest'));
 const Strategy = lazy(() => import('@/pages/Strategy'));
 const AI = lazy(() => import('@/pages/AI'));
 const Trading = lazy(() => import('@/pages/Trading'));
+const DataCenter = lazy(() => import('@/pages/DataCenter'));
 
 // Import Ant Design styles
 import 'antd/dist/reset.css';
@@ -43,46 +44,49 @@ function App() {
           },
         }}
       >
-        <Router>
-          <MainLayout>
-            <ErrorBoundary>
-              <Suspense
-                fallback={
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      height: '400px',
-                      flexDirection: 'column',
-                      gap: '16px',
-                    }}
-                  >
-                    <Spin size="large" />
-                    <div style={{ color: '#666', fontSize: '14px' }}>
-                      页面加载中...
+        <AntdApp>
+          <Router>
+            <MainLayout>
+              <ErrorBoundary>
+                <Suspense
+                  fallback={
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        height: '400px',
+                        flexDirection: 'column',
+                        gap: '16px',
+                      }}
+                    >
+                      <Spin size="large" />
+                      <div style={{ color: '#666', fontSize: '14px' }}>
+                        页面加载中...
+                      </div>
                     </div>
-                  </div>
-                }
-              >
-                <Routes>
-                  <Route
-                    path="/"
-                    element={<Navigate to="/dashboard" replace />}
-                  />
-                  <Route path="/dashboard" element={<Dashboard />} />
-                  <Route path="/backtest" element={<Backtest />} />
-                  <Route path="/strategy" element={<Strategy />} />
-                  <Route path="/ai" element={<AI />} />
-                  <Route path="/trading" element={<Trading />} />
-                </Routes>
-              </Suspense>
-            </ErrorBoundary>
-          </MainLayout>
-        </Router>
+                  }
+                >
+                  <Routes>
+                    <Route
+                      path="/"
+                      element={<Navigate to="/dashboard" replace />}
+                    />
+                    <Route path="/dashboard" element={<Dashboard />} />
+                    <Route path="/backtest" element={<Backtest />} />
+                    <Route path="/strategy" element={<Strategy />} />
+                    <Route path="/ai" element={<AI />} />
+                    <Route path="/trading" element={<Trading />} />
+                    <Route path="/data-center" element={<DataCenter />} />
+                  </Routes>
+                </Suspense>
+              </ErrorBoundary>
+            </MainLayout>
+          </Router>
 
-        {/* 性能监控组件，仅开发环境显示 */}
-        <PerformanceMonitor />
+          {/* 性能监控组件，仅开发环境显示 */}
+          <PerformanceMonitor />
+        </AntdApp>
       </ConfigProvider>
     </ErrorBoundary>
   );

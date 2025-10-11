@@ -163,6 +163,69 @@ class VectorbtBacktestEngine(BacktestEngine):
         constraint_status = "启用A股约束" if self.enable_constraints else "禁用约束"
         cost_status = "启用成本计算" if self.enable_cost_model else "禁用成本计算"
         logger.info(f"Vectorbt回测引擎初始化完成 - {constraint_status}, {cost_status}")
+        
+        # 添加默认策略
+        self._add_default_strategies()
+    
+    def _add_default_strategies(self):
+        """添加默认策略"""
+        try:
+            # 添加双均线策略
+            ma_strategy = create_simple_ma_strategy(fast_window=5, slow_window=20)
+            self.add_strategy(ma_strategy)
+            
+            # 添加RSI策略
+            rsi_strategy = create_rsi_strategy(rsi_window=14, oversold=30, overbought=70)
+            self.add_strategy(rsi_strategy)
+            
+            # 添加动量策略
+            momentum_strategy = self._create_momentum_strategy()
+            self.add_strategy(momentum_strategy)
+            
+            # 建立策略类型映射
+            self.strategy_type_mapping = {
+                'ma_crossover': 'MA_5_20',
+                'rsi_mean_reversion': 'RSI_14_30_70', 
+                'momentum': 'Momentum_20_0.02'
+            }
+            
+            logger.info("默认策略添加完成")
+            
+        except Exception as e:
+            logger.error(f"添加默认策略失败: {e}")
+    
+    def _create_momentum_strategy(self, lookback_period: int = 20, threshold: float = 0.02) -> BacktestStrategy:
+        """创建动量策略"""
+        def momentum_signal_func(data: pd.DataFrame, 
+                                lookback_period: int, 
+                                threshold: float) -> pd.DataFrame:
+            """动量信号生成函数"""
+            # 获取收盘价
+            if 'close' in data.columns:
+                close_prices = data['close']
+            else:
+                close_prices = data.xs('close', axis=1, level=1) if data.columns.nlevels > 1 else data
+            
+            # 计算动量
+            momentum = close_prices / close_prices.shift(lookback_period) - 1
+            
+            # 生成信号
+            buy_signals = momentum > threshold
+            sell_signals = momentum < -threshold
+            
+            # 创建信号矩阵
+            signals = pd.DataFrame(index=close_prices.index, columns=close_prices.columns)
+            signals[buy_signals] = 1
+            signals[sell_signals] = -1
+            signals = signals.fillna(0)
+            
+            return signals
+        
+        return BacktestStrategy(
+            name=f'Momentum_{lookback_period}_{threshold}',
+            signal_func=momentum_signal_func,
+            parameters={'lookback_period': lookback_period, 'threshold': threshold}
+        )
     
     def add_strategy(self, strategy: BacktestStrategy) -> bool:
         """
@@ -191,6 +254,10 @@ class VectorbtBacktestEngine(BacktestEngine):
         except Exception as e:
             logger.error(f"添加策略失败: {e}")
             return False
+    
+    def get_strategy_name_by_type(self, strategy_type: str) -> str:
+        """根据策略类型获取内部策略名称"""
+        return self.strategy_type_mapping.get(strategy_type, strategy_type)
     
     def load_data(self, 
                   symbols: Union[str, List[str]], 

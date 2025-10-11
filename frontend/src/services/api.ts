@@ -147,4 +147,73 @@ export const healthApi = {
     apiRequest.get('/health/status'),
 };
 
+// 数据中心API
+export const dataAPI = {
+  // 获取交易日历
+  getTradingCalendar: (year: number): Promise<any> =>
+    apiRequest.get('/data/trading-calendar', { year }),
+
+  // 筛选股票
+  filterStocks: (filters: any): Promise<any> =>
+    apiRequest.post('/data/filter-stocks', filters),
+
+  // 获取财务数据
+  getFundamentalData: (symbol: string): Promise<any> =>
+    apiRequest.get(`/data/fundamental/${symbol}`),
+
+  // 获取实时行情
+  getRealtimeQuote: (symbol: string): Promise<any> =>
+    apiRequest.get(`/data/quote/${symbol}`),
+
+  // 获取行业分类
+  getIndustryClassification: (symbol: string): Promise<any> =>
+    apiRequest.get(`/data/industry/${symbol}`),
+};
+
+// 纸上交易API
+export const paperTradingAPI = {
+  // 创建订单
+  createOrder: (order: any): Promise<any> =>
+    apiRequest.post('/paper/orders', order),
+
+  // 查询订单
+  getOrders: (params?: any): Promise<any> =>
+    apiRequest.get('/paper/orders', params),
+
+  // 查询持仓
+  getPositions: (symbol?: string): Promise<any> =>
+    apiRequest.get('/paper/positions', symbol ? { symbol } : undefined),
+
+  // 组合概览
+  getPortfolioSummary: (): Promise<any> =>
+    apiRequest.get('/paper/portfolio/summary'),
+
+  // 偏差分析
+  getDeviationAnalysis: (backtest_id: string, params?: any): Promise<any> =>
+    apiRequest.get('/paper/analysis/deviation', { backtest_id, ...params }),
+};
+
+// 组合管理API
+export const portfolioAPI = {
+  // 信号转权重
+  transformSignals: (request: any): Promise<any> =>
+    apiRequest.post('/portfolio/signals/transform', request),
+
+  // 组合优化
+  optimizePortfolio: (request: any): Promise<any> =>
+    apiRequest.post('/portfolio/optimize', request),
+
+  // 权重验证
+  validateWeights: (request: any): Promise<any> =>
+    apiRequest.post('/portfolio/validate', request),
+
+  // 再平衡
+  executeRebalance: (request: any): Promise<any> =>
+    apiRequest.post('/portfolio/rebalance', request),
+
+  // 约束模板
+  getConstraintTemplates: (): Promise<any> =>
+    apiRequest.get('/portfolio/constraints/templates'),
+};
+
 export default apiClient;

@@ -15,6 +15,8 @@ from .backtest import router as backtest_router
 from .data_sync import router as data_sync_router
 from .strategies import router as strategies_router
 from .ai import router as ai_router
+from .paper_trading import router as paper_trading_router
+from .portfolio import router as portfolio_router
 
 # 创建主路由器
 api_router = APIRouter()
@@ -30,5 +32,7 @@ api_router.include_router(backtest_router, prefix="/backtest", tags=["策略回�
 api_router.include_router(data_sync_router, prefix="/data-sync", tags=["数据同步"])
 api_router.include_router(strategies_router, prefix="/strategies", tags=["策略管理"])
 api_router.include_router(ai_router, prefix="/ai", tags=["AI助手"])
+api_router.include_router(paper_trading_router, prefix="/paper", tags=["纸上交易"])
+api_router.include_router(portfolio_router, prefix="/portfolio", tags=["组合管理"])
 
 __all__ = ["api_router"]

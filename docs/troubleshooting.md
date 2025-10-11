@@ -254,6 +254,19 @@ RETRY_CONFIG = {
 }
 ```
 
+**AKShare 同步“无响应”问题**:
+
+- 现象: 触发“同步全部股票”时接口长时间无响应；或任务队列初始化报错。
+- 根因: 同步接口在请求时同步拉取全量股票列表，AKShare网络抖动或慢响应导致阻塞；任务队列并发配置参数为字符串，初始化线程池时报 `TypeError: '<=' not supported between instances of 'str' and 'int'`。
+- 修复要点:
+  - 将“获取全量股票列表”延迟到后台任务执行，接口立即返回`pending`状态（异步模式）。
+  - 为 AKShare 获取列表与K线数据添加超时保护（使用应用配置 `AKSHARE_TIMEOUT`）。
+  - 统一任务队列并发配置为整数并设置最小值（防止字符串类型导致线程池初始化异常）。
+- 自检步骤:
+  1) POST `/api/v1/data-sync/sync`，仅传 `{ "async_mode": true }` 应立即返回`pending`与`task_id`。
+  2) GET `/api/v1/data-sync/tasks` 能返回正常统计（不再抛出 `max_workers` 类型错误）。
+  3) POST `/api/v1/data-sync/sync` 传小批量 `symbols` 验证后台同步，随后 GET `/api/v1/data-sync/symbols` 应看到`symbols`数量增长。
+
 **网络问题**:
 
 ```bash
