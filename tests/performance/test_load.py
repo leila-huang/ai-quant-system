@@ -65,18 +65,18 @@ class TestPerformance:
     """性能和压力测试类"""
     
     @pytest.fixture(scope="class", autouse=True)
-    def setup_test_environment(self):
+    def setup_test_environment(self, request):
         """设置测试环境"""
         # 创建测试数据目录
         test_data_dir = Path("data/performance_test")
         test_data_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 初始化组件
-        self.akshare_adapter = AKShareAdapter()
-        self.parquet_storage = ParquetStorage(base_path="data/performance_test/parquet")
-        
+        request.cls.akshare_adapter = AKShareAdapter()
+        request.cls.parquet_storage = ParquetStorage(base_path="data/performance_test/parquet")
+
         yield
-        
+
         # 清理测试数据
         import shutil
         if test_data_dir.exists():

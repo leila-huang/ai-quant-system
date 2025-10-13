@@ -32,6 +32,14 @@ from backend.src.engine.backtest.cost_model import TradingCostModel, CostConfig,
 from backend.src.engine.backtest.report_generator import BacktestReportGenerator, ReportConfig
 from backend.src.engine.backtest.metrics import PerformanceAnalyzer
 from backend.app.api.websocket import broadcast_backtest_progress
+from backend.src.engine.portfolio.signal_transformer import (
+    SignalToWeightTransformer,
+)
+from backend.src.engine.portfolio.optimizer import (
+    PortfolioOptimizer,
+    OptimizationConfig,
+    OptimizationMethod,
+)
 
 
 router = APIRouter()
@@ -737,7 +745,10 @@ async def _execute_backtest(backtest_id: str, request: BacktestRequest, task_id:
                 else:
                     # 默认使用双均线策略
                     signals = _generate_ma_crossover_signals(df, indicator_calculator, strategy_params)
-                
+
+                if 'date' in df.columns:
+                    signals.index = pd.to_datetime(df['date'])
+
                 signals_data[symbol] = signals
                 
             except Exception as e:
@@ -745,27 +756,154 @@ async def _execute_backtest(backtest_id: str, request: BacktestRequest, task_id:
                 continue
         
         signals_df = pd.DataFrame(signals_data) if signals_data else pd.DataFrame()
-        
-        # 更新进度：执行回测
+
+        if signals_df.empty:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="未能生成有效的交易信号，无法执行回测"
+            )
+
+        if not isinstance(signals_df.index, pd.DatetimeIndex):
+            signals_df.index = pd.to_datetime(signals_df.index)
+
+        signals_df = signals_df.sort_index()
+        signals_df = signals_df.loc[
+            (signals_df.index >= pd.Timestamp(request.start_date)) &
+            (signals_df.index <= pd.Timestamp(request.end_date))
+        ]
+        signals_df = signals_df.fillna(0)
+
+        price_frames = []
+        for symbol, df in validated_data.items():
+            if 'close' not in df.columns:
+                continue
+            symbol_prices = df[['date', 'close']].dropna()
+            if symbol_prices.empty:
+                continue
+            symbol_prices['date'] = pd.to_datetime(symbol_prices['date'])
+            symbol_series = symbol_prices.set_index('date')['close'].rename(symbol)
+            price_frames.append(symbol_series)
+
+        price_data = pd.concat(price_frames, axis=1).sort_index() if price_frames else pd.DataFrame()
+
+        if price_data.empty:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="无法构建价格矩阵，组合优化终止"
+            )
+
+        valid_columns = [col for col in signals_df.columns if col in price_data.columns]
+        if not valid_columns:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="价格矩阵中缺少全部目标股票，无法执行组合优化"
+            )
+
+        signals_df = signals_df[valid_columns]
+        price_data = price_data[valid_columns]
+        price_data = price_data.reindex(signals_df.index).ffill().dropna(how='all')
+
+        if price_data.empty:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="价格矩阵为空，无法执行组合优化"
+            )
+
+        signal_transformer = SignalToWeightTransformer()
+        optimizer = PortfolioOptimizer(
+            OptimizationConfig(
+                method=OptimizationMethod.MEAN_VARIANCE,
+                max_stock_weight=0.1,
+            )
+        )
+
+        returns_data = price_data.pct_change().dropna(how='all')
+        rebalance_dates = _get_rebalance_dates(signals_df.index, request.rebalance_frequency)
+        weights_records: Dict[pd.Timestamp, pd.Series] = {}
+        current_weights = pd.Series(0.0, index=signals_df.columns, dtype=float)
+
+        for dt, row in signals_df.iterrows():
+            normalized_dt = dt.normalize()
+            if normalized_dt in rebalance_dates:
+                base_weights = signal_transformer.transform(row, signal_date=dt)
+                base_weights = base_weights.reindex(signals_df.columns).fillna(0.0)
+
+                if base_weights.empty:
+                    optimized_weights = pd.Series(0.0, index=signals_df.columns, dtype=float)
+                else:
+                    history_returns = returns_data.loc[:dt].tail(60)
+                    if history_returns.empty:
+                        optimized_weights = base_weights
+                    else:
+                        expected_returns = history_returns.mean().reindex(base_weights.index).fillna(0.0)
+                        cov_matrix = history_returns.cov().reindex(
+                            index=base_weights.index, columns=base_weights.index
+                        ).fillna(0.0)
+
+                        try:
+                            if np.isclose(cov_matrix.values.sum(), 0.0):
+                                optimized_weights = base_weights
+                            else:
+                                cov_values = cov_matrix.values.copy()
+                                diag_idx = np.diag_indices_from(cov_values)
+                                cov_values[diag_idx] = np.where(
+                                    cov_values[diag_idx] <= 0, 1e-4, cov_values[diag_idx]
+                                )
+                                cov_matrix = pd.DataFrame(
+                                    cov_values, index=cov_matrix.index, columns=cov_matrix.columns
+                                )
+                                optimized = optimizer.optimize(expected_returns, cov_matrix)
+                                optimized_weights = optimized.reindex(base_weights.index).fillna(0.0)
+                        except Exception as opt_error:
+                            logger.warning(f"组合优化失败，使用基础权重: {opt_error}")
+                            optimized_weights = base_weights
+
+                current_weights = optimized_weights
+
+            weights_records[dt] = current_weights
+
+        optimized_weights_df = pd.DataFrame.from_dict(weights_records, orient='index')
+        optimized_weights_df = optimized_weights_df.reindex(signals_df.index).ffill().fillna(0.0)
+
+        capital_allocation = optimized_weights_df * request.initial_capital
+        adjusted_prices = price_data.replace(0, np.nan)
+        position_sizes_df = capital_allocation.divide(adjusted_prices).fillna(0.0)
+
+        optimized_weights_metadata = {
+            dt.strftime('%Y-%m-%d'): {
+                symbol: float(weight)
+                for symbol, weight in weights.items()
+                if not pd.isna(weight) and abs(weight) > 1e-6
+            }
+            for dt, weights in optimized_weights_df.iterrows()
+        }
+
         if task_id:
             _backtest_tasks[task_id]["progress"] = 0.6
             _backtest_tasks[task_id]["current_step"] = "执行策略回测"
             _backtest_tasks[task_id]["updated_at"] = datetime.now().isoformat()
-            
-            # WebSocket推送进度
+
             await broadcast_backtest_progress(
                 backtest_id=backtest_id,
                 status="running",
                 progress=0.6,
                 current_step="执行策略回测"
             )
-        
-        # 运行回测
-        backtest_result = engine.run_backtest(
-            symbols=request.universe,
-            start_date=request.start_date,
-            end_date=request.end_date,
-            strategy_names=request.strategy_config.strategy_type
+
+        backtest_result = engine.run_backtest_with_custom_positions(
+            price_data=price_data,
+            signals=signals_df,
+            position_sizes=position_sizes_df,
+            metadata={
+                "strategy_config": request.strategy_config.dict(),
+                "universe": request.universe,
+                "date_range": (
+                    request.start_date.isoformat(),
+                    request.end_date.isoformat()
+                ),
+                "rebalance_frequency": request.rebalance_frequency,
+                "optimized_weights": optimized_weights_metadata,
+            }
         )
         
         # 更新进度：计算性能指标
@@ -853,11 +991,29 @@ async def _execute_backtest(backtest_id: str, request: BacktestRequest, task_id:
         )
 
 
+def _get_rebalance_dates(index: pd.DatetimeIndex, frequency: str) -> set:
+    """根据调仓频率生成调仓日期集合"""
+    if index.empty:
+        return set()
+
+    normalized_index = index.sort_values().normalize().unique()
+    marker = pd.Series(1, index=normalized_index)
+
+    if frequency == "weekly":
+        rebalance_index = marker.resample('W-FRI').last().dropna().index
+    elif frequency == "monthly":
+        rebalance_index = marker.resample('M').last().dropna().index
+    else:
+        rebalance_index = normalized_index
+
+    return set(pd.DatetimeIndex(rebalance_index).normalize())
+
+
 def _generate_ma_crossover_signals(df: pd.DataFrame, indicator_calculator, params: dict) -> pd.Series:
     """生成双均线交叉策略信号"""
     fast_period = params.get('fast_period', 5)
     slow_period = params.get('slow_period', 20)
-    
+
     # 计算移动平均线
     df_with_ma = indicator_calculator._add_ma_indicators(df, ma_windows=[fast_period, slow_period])
     

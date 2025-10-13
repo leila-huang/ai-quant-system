@@ -27,26 +27,26 @@ class TestEndToEnd:
     """端到端集成测试类"""
     
     @pytest.fixture(scope="class", autouse=True)
-    def setup_test_environment(self):
+    def setup_test_environment(self, request):
         """设置测试环境"""
         # 确保测试数据目录存在
         test_data_dir = Path("data/test")
         test_data_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 初始化组件
-        self.akshare_adapter = AKShareAdapter()
-        self.parquet_storage = ParquetStorage(base_path="data/test/parquet")
-        
+        request.cls.akshare_adapter = AKShareAdapter()
+        request.cls.parquet_storage = ParquetStorage(base_path="data/test/parquet")
+
         # 数据库连接
         settings = get_settings()
-        self.db_manager = DatabaseManager(
+        request.cls.db_manager = DatabaseManager(
             host=settings.DB_HOST,
             port=settings.DB_PORT,
             username=settings.DB_USERNAME,
             password=settings.DB_PASSWORD,
             database=settings.DB_NAME
         )
-        self.crud_manager = BaseCRUD(None)  # 基础CRUD类不需要特定模型
+        request.cls.crud_manager = BaseCRUD(None)  # 基础CRUD类不需要特定模型
         
         yield
         

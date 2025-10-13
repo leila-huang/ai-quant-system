@@ -8,7 +8,7 @@ from datetime import date, datetime
 from typing import List, Optional, Dict, Any, Union
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -120,13 +120,44 @@ class StockQueryRequest(BaseModel):
 
 class StockDailyData(BaseModel):
     """股票日线数据模型"""
-    trade_date: date = Field(..., description="交易日期")
-    open_price: float = Field(..., description="开盘价")
-    close_price: float = Field(..., description="收盘价")
-    high_price: float = Field(..., description="最高价")
-    low_price: float = Field(..., description="最低价")
-    volume: Optional[float] = Field(None, description="成交量")
-    amount: Optional[float] = Field(None, description="成交额")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    trade_date: date = Field(
+        ...,
+        description="交易日期",
+        validation_alias=AliasChoices("trade_date", "date"),
+    )
+    open_price: Optional[float] = Field(
+        None,
+        description="开盘价",
+        validation_alias=AliasChoices("open_price", "open"),
+    )
+    close_price: Optional[float] = Field(
+        None,
+        description="收盘价",
+        validation_alias=AliasChoices("close_price", "close"),
+    )
+    high_price: Optional[float] = Field(
+        None,
+        description="最高价",
+        validation_alias=AliasChoices("high_price", "high"),
+    )
+    low_price: Optional[float] = Field(
+        None,
+        description="最低价",
+        validation_alias=AliasChoices("low_price", "low"),
+    )
+    volume: Optional[float] = Field(
+        None,
+        description="成交量",
+        validation_alias=AliasChoices("volume", "vol"),
+    )
+    amount: Optional[float] = Field(
+        None,
+        description="成交额",
+        validation_alias=AliasChoices("amount", "turnover"),
+    )
     pct_change: Optional[float] = Field(None, description="涨跌幅")
     
     # TODO: 需要更新为Pydantic v2的序列化配置

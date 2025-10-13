@@ -113,9 +113,18 @@ class DatabaseConfig:
 
 class DatabaseManager:
     """数据库管理器"""
-    
-    def __init__(self, config: DatabaseConfig):
-        self.config = config
+
+    def __init__(self, config: Optional[DatabaseConfig] = None, **kwargs: Any):
+        """支持直接传入配置对象或关键字参数。"""
+
+        if config is not None and kwargs:
+            merged = {**vars(config), **kwargs}
+            self.config = DatabaseConfig(**merged)
+        elif config is not None:
+            self.config = config
+        else:
+            self.config = DatabaseConfig(**kwargs)
+
         self.engine: Optional[Engine] = None
         self.async_engine = None
         self.SessionLocal: Optional[sessionmaker] = None

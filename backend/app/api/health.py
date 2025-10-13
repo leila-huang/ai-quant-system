@@ -221,7 +221,13 @@ async def get_system_info():
 async def ping():
     """
     简单的连通性测试接口
-    
+
     最轻量的健康检查，仅返回pong响应。
     """
     return {"message": "pong", "timestamp": datetime.utcnow().isoformat()}
+
+
+@router.options("/ping", include_in_schema=False)
+async def ping_options():
+    """处理CORS预检请求，避免返回405。"""
+    return {"allow": ["GET", "OPTIONS"]}
