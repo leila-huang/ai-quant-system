@@ -222,7 +222,7 @@ class DataService:
                 await asyncio.sleep(0.1)
             
             task.progress = 100.0
-            task.status = SyncStatus.SUCCESS if failed_count == 0 else SyncStatus.SUCCESS
+            task.status = SyncStatus.SUCCESS if failed_count == 0 else SyncStatus.FAILED
             task.result = {
                 "success_count": success_count,
                 "failed_count": failed_count,
@@ -331,15 +331,17 @@ class DataService:
             # 转换为API响应格式
             daily_data = []
             for bar in bars:
-                daily_data.append(StockDailyData(
-                    date=bar.date,
-                    open_price=bar.open_price,
-                    close_price=bar.close_price,
-                    high_price=bar.high_price,
-                    low_price=bar.low_price,
-                    volume=bar.volume,
-                    amount=bar.amount
-                ))
+                daily_data.append(
+                    StockDailyData(
+                        trade_date=bar.date,
+                        open_price=bar.open_price,
+                        close_price=bar.close_price,
+                        high_price=bar.high_price,
+                        low_price=bar.low_price,
+                        volume=bar.volume,
+                        amount=bar.amount,
+                    )
+                )
             
             return StockQueryResponse(
                 symbol=symbol,

@@ -22,6 +22,22 @@ class StockDailyBar:
     amount: Optional[float] = None
     adjust_factor: Optional[float] = None
 
+    @property
+    def open(self) -> float:
+        return self.open_price
+
+    @property
+    def close(self) -> float:
+        return self.close_price
+
+    @property
+    def high(self) -> float:
+        return self.high_price
+
+    @property
+    def low(self) -> float:
+        return self.low_price
+
 
 @dataclass
 class StockData:

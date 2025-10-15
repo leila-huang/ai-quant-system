@@ -64,16 +64,19 @@ class RequestTrackingMiddleware(BaseHTTPMiddleware):
         except Exception as exc:
             # 计算处理时间
             process_time = time.time() - start_time
-            
-            # 记录请求异常日志
-            logger.error(
-                f"Request failed: {request.method} {request.url.path} "
-                f"- Exception: {type(exc).__name__} - {str(exc)} "
-                f"- Time: {process_time:.3f}s "
-                f"- Request ID: {request_id}",
-                exc_info=True
+
+            # 记录请求异常日志（使用结构化参数，避免缺失字段导致的格式化异常）
+            logger.opt(exception=exc).error(
+                "Request failed: {method} {path} - Exception: {exc_type}: {exc_msg} "
+                "- Time: {process_time:.3f}s - Request ID: {request_id}",
+                method=request.method,
+                path=request.url.path,
+                exc_type=type(exc).__name__,
+                exc_msg=str(exc),
+                process_time=process_time,
+                request_id=request_id,
             )
-            
+
             raise
     
     def _get_client_ip(self, request: Request) -> str:

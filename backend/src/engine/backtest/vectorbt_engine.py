@@ -543,9 +543,9 @@ class VectorbtBacktestEngine(BacktestEngine):
             # 清理内存
             gc.collect()
     
-    def _run_vectorbt_backtest(self, 
+    def _run_vectorbt_backtest(self,
                               data: pd.DataFrame,
-                              signals: pd.DataFrame, 
+                              signals: pd.DataFrame,
                               position_sizes: pd.DataFrame,
                               strategy_name: str) -> vbt.Portfolio:
         """
@@ -595,12 +595,81 @@ class VectorbtBacktestEngine(BacktestEngine):
         except Exception as e:
             logger.error(f"vectorbt回测执行失败: {e}")
             raise
-    
+
+    def run_backtest_with_custom_positions(
+        self,
+        price_data: pd.DataFrame,
+        signals: pd.DataFrame,
+        position_sizes: pd.DataFrame,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> BacktestResult:
+        """使用外部信号和仓位执行回测"""
+
+        start_time = time.time()
+
+        try:
+            if price_data.empty:
+                raise ValueError("价格数据不能为空")
+            if signals.empty:
+                raise ValueError("信号数据不能为空")
+            if position_sizes.empty:
+                raise ValueError("头寸数据不能为空")
+
+            aligned_index = price_data.index.union(signals.index).union(position_sizes.index)
+            aligned_index = aligned_index.sort_values().unique()
+
+            price_aligned = price_data.reindex(aligned_index).ffill().dropna(how='all')
+            signals_aligned = signals.reindex(aligned_index).fillna(0)
+            position_aligned = position_sizes.reindex(aligned_index).fillna(0)
+
+            if price_aligned.empty:
+                raise ValueError("对齐后的价格数据为空")
+
+            entries = signals_aligned > 0
+            exits = signals_aligned < 0
+            abs_sizes = position_aligned.abs()
+
+            portfolio = vbt.Portfolio.from_signals(
+                close=price_aligned,
+                entries=entries,
+                exits=exits,
+                size=abs_sizes,
+                init_cash=self.config.initial_cash,
+                fees=self.config.commission,
+                slippage=self.config.slippage,
+                freq='D'
+            )
+
+            performance_stats = self._calculate_performance_stats(portfolio)
+            execution_time = time.time() - start_time
+
+            returns = portfolio.returns() if hasattr(portfolio, 'returns') else pd.Series(dtype=float)
+            positions = portfolio.positions if hasattr(portfolio, 'positions') else pd.DataFrame()
+            trades = portfolio.trades.records_readable if hasattr(portfolio, 'trades') else pd.DataFrame()
+
+            result_metadata = metadata.copy() if metadata else {}
+            result_metadata.setdefault('engine', 'vectorbt')
+            result_metadata.setdefault('custom_positions', True)
+            result_metadata.setdefault('symbols', list(price_aligned.columns))
+            result_metadata.setdefault('execution_time', execution_time)
+
+            return BacktestResult(
+                returns=returns,
+                positions=positions,
+                trades=trades,
+                metrics=performance_stats,
+                metadata=result_metadata
+            )
+
+        except Exception as e:
+            logger.error(f"自定义仓位回测失败: {e}")
+            raise
+
     def _calculate_performance_stats(self, portfolio: vbt.Portfolio) -> Dict[str, float]:
         """计算性能统计指标"""
         try:
             stats = {}
-            
+
             # 基础收益指标
             try:
                 stats['total_return'] = float(portfolio.total_return()) if hasattr(portfolio, 'total_return') else 0.0
